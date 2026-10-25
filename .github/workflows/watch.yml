@@ -1,0 +1,43 @@
+name: Availability watch
+on:
+  schedule:
+    - cron: '7 * * * *' # 30분: '7,37 * * * *' + WATCH_INTERVAL_MINUTES=30
+  workflow_dispatch:
+    inputs:
+      command:
+        description: '감시 또는 알림 재시도'
+        type: choice
+        default: watch-slots
+        options: [watch-slots, send-outbox]
+permissions:
+  contents: read
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: tenniswatch-availability
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      WATCH_INTERVAL_MINUTES: ${{ vars.WATCH_INTERVAL_MINUTES }}
+      WATCH_DAYS_AHEAD: ${{ vars.WATCH_DAYS_AHEAD || '7' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install .
+      - id: plan
+        if: inputs.command != 'send-outbox'
+        run: tenniswatch collection-plan --github-output
+      - run: python -m playwright install --with-deps chromium
+        if: steps.plan.outputs.needs_browser == 'true'
+      - run: tenniswatch watch-slots
+        if: inputs.command != 'send-outbox'
+      - run: tenniswatch send-outbox
+        if: inputs.command == 'send-outbox'

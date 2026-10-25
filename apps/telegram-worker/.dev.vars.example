@@ -1,0 +1,10 @@
+# 루트 .env를 설정한 뒤 tenniswatch prepare-worker로 실제 파일을 생성하세요.
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_WEBHOOK_SECRET=""
+SUPABASE_URL=""
+SUPABASE_SERVICE_ROLE_KEY=""
+LLM_API_KEY=""
+LLM_MODEL=""
+ALLOWED_TELEGRAM_CHAT_IDS=""
+# 다른 공급자를 쓰면 전체 Chat Completions HTTPS 주소를 지정하세요.
+# LLM_API_URL=""

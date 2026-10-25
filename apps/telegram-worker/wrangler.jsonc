@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tenniswatch-telegram-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-24",
+  "workers_dev": true,
+  "send_metrics": false,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "INBOX_BATCH_SIZE": "1",
+    "LLM_MAX_TOKENS": "700",
+    "LLM_DAILY_USER_CALLS": "24",
+    "LLM_DAILY_GLOBAL_CALLS": "100",
+    "LLM_DAILY_TOKEN_BUDGET": "150000"
+  }
+}
