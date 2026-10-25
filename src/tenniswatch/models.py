@@ -187,6 +187,18 @@ class LlmUsage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DailyReportSetting(Base):
+    __tablename__ = "daily_report_settings"
+    user_id: Mapped[int] = mapped_column(ForeignKey("telegram_users.id", ondelete="CASCADE"), primary_key=True)
+    minute_of_day: Mapped[int] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_update_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (CheckConstraint("minute_of_day >= 0 AND minute_of_day < 1440"),)
+
+
 class AvailabilitySlot(Base):
     __tablename__ = "availability_slots"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -219,6 +231,8 @@ class Notification(Base):
     event_id: Mapped[int | None] = mapped_column(ForeignKey("availability_events.id"), nullable=True)
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey("reservation_schedules.id"), nullable=True)
     schedule_opens_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    report_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    report_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("telegram_users.id"))
     kind: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20), default="PENDING")
@@ -229,6 +243,7 @@ class Notification(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     __table_args__ = (
+        UniqueConstraint("user_id", "kind", "report_date", name="uq_notification_daily_user_date"),
         UniqueConstraint("event_id", "user_id", "kind", name="uq_notification_event_user_kind"),
         UniqueConstraint("schedule_id", "user_id", "kind", "schedule_opens_at", name="uq_notification_schedule_user_kind"),
     )

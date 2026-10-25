@@ -123,6 +123,9 @@ export class SupabaseTennisTools implements ConversationStore {
       update_subscription: (context, input) => this.mutate(context, "update_subscription", input),
       delete_subscription: (context, input) => this.mutate(context, "delete_subscription", input),
       list_subscriptions: (context) => this.listSubscriptions(context),
+      set_daily_report: (context, input) => this.dailyReport(context, "set", input),
+      get_daily_report: (context) => this.dailyReport(context, "get", {}),
+      disable_daily_report: (context) => this.dailyReport(context, "disable", {}),
     };
   }
 
@@ -440,6 +443,19 @@ export class SupabaseTennisTools implements ConversationStore {
         facilities: (facilitiesByWatch.get(watch.id) ?? []).map(({ id, name, region, collection_status }) => ({ id, name, region, collection_status })),
       })),
     };
+  }
+
+  private async dailyReport(context: ToolContext, action: string, input: Record<string, unknown>): Promise<ToolResult> {
+    try {
+      const minute = typeof input.local_time === "string"
+        ? Number(input.local_time.slice(0, 2))*60+Number(input.local_time.slice(3, 5)) : null;
+      return await this.rpc<ToolResult>("manage_daily_report", {
+        p_update_id: context.updateId, p_user_id: context.telegramUserId,
+        p_chat_id: String(context.chatId), p_action: action, p_minute: minute,
+      });
+    } catch {
+      return { ok: false, code: "failed" };
+    }
   }
 
   async load(telegramUserId: number, chatId: number): Promise<ConversationState | null> {

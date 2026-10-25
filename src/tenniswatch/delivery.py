@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from .domain import SlotObservation, as_utc, next_reservation_open
-from .models import (AvailabilityEvent, AvailabilitySlot, CollectionRun, Facility, Notification,
+from .models import (AvailabilityEvent, AvailabilitySlot, CollectionRun, DailyReportSetting, Facility, Notification,
                      ReservationPolicy, ReservationSchedule, ReservationSite, TelegramUser)
 from .notifications import NotificationDeliveryError, opening_message, slot_message
 from .opening import policy_is_valid, policy_snapshot, reminder_kind, watch_matches_schedule
@@ -31,6 +31,18 @@ def prepare_payload(session, row, now):
     if user is None or not user.enabled:
         release(row, "SKIPPED", "USER_DISABLED")
         return None
+    if row.kind == "daily_report":
+        from .daily_reports import render_daily_report
+        setting = session.get(DailyReportSetting, row.user_id)
+        local = now.astimezone(ZoneInfo("Asia/Seoul"))
+        if (not setting or not setting.enabled or row.report_revision != setting.revision
+            or row.report_date != local.date()):
+            release(row, "SKIPPED", "DAILY_REPORT_DISABLED_OR_EXPIRED")
+            return None
+        if local.hour*60+local.minute < setting.minute_of_day:
+            defer(row, "DAILY_REPORT_NOT_DUE", now, 1)
+            return None
+        return render_daily_report(session, user.id, now), user.chat_id
     if row.kind == "slot_available":
         event = session.get(AvailabilityEvent, row.event_id) if row.event_id else None
         slot = session.get(AvailabilitySlot, event.slot_id) if event else None
