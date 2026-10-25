@@ -8,7 +8,7 @@ on:
         description: '감시 또는 알림 재시도'
         type: choice
         default: watch-slots
-        options: [watch-slots, send-outbox]
+        options: [watch-slots, send-outbox, daily-reports]
 permissions:
   contents: read
 jobs:
@@ -33,11 +33,14 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install .
       - id: plan
-        if: inputs.command != 'send-outbox'
+        if: inputs.command == '' || inputs.command == 'watch-slots'
         run: tenniswatch collection-plan --github-output
       - run: python -m playwright install --with-deps chromium
         if: steps.plan.outputs.needs_browser == 'true'
       - run: tenniswatch watch-slots
-        if: inputs.command != 'send-outbox'
+        if: inputs.command == '' || inputs.command == 'watch-slots'
       - run: tenniswatch send-outbox
         if: inputs.command == 'send-outbox'
+      - name: Send requested daily snapshots
+        if: ${{ !cancelled() && (steps.plan.outcome == 'success' || inputs.command == 'daily-reports') }}
+        run: tenniswatch daily-reports

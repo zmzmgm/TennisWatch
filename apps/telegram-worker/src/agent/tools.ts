@@ -56,6 +56,9 @@ export const toolDefinitions: ToolDefinition[] = [
   { type: "function", function: { name: "update_subscription", description: "Change an existing watch belonging to the authenticated Telegram user.", parameters: objectSchema({ subscription_id: integerId, patch: objectSchema({ facility: text, region: text, play_date: date, weekdays: { type: "array", items: weekday, minItems: 1, maxItems: 7 }, start_time: clock, end_time: clock, watch_type: { type: "string", enum: ["availability", "opening"] }, audience, enabled: { type: "boolean"} }) }, ["subscription_id", "patch"]), strict: false } },
   { type: "function", function: { name: "delete_subscription", description: "Disable a watch belonging to the authenticated Telegram user.", parameters: objectSchema({ subscription_id: integerId }, ["subscription_id"]), strict: false } },
   { type: "function", function: { name: "list_subscriptions", description: "List active watches belonging to the authenticated Telegram user.", parameters: objectSchema({}), strict: false } },
+  { type: "function", function: { name: "set_daily_report", description: "Save a requested daily availability snapshot time for the authenticated user, using existing availability watches. Ask for the time if missing. This saves settings, not deployment. Korea time; execution may be delayed.", parameters: objectSchema({ local_time: clock }, ["local_time"]), strict: false } },
+  { type: "function", function: { name: "get_daily_report", description: "Read the authenticated user's daily snapshot settings.", parameters: objectSchema({}), strict: false } },
+  { type: "function", function: { name: "disable_daily_report", description: "Disable only the authenticated user's daily snapshot; preserve their availability watches.", parameters: objectSchema({}), strict: false } },
 ];
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -126,6 +129,10 @@ function basicValidate(name: string, value: unknown): Record<string, unknown> | 
     }
     case "delete_subscription":
       return onlyKeys(value, ["subscription_id"]) && Number.isSafeInteger(value.subscription_id) && Number(value.subscription_id) > 0 ? value : null;
+    case "set_daily_report":
+      return onlyKeys(value, ["local_time"]) && validTime(value.local_time) ? value : null;
+    case "get_daily_report":
+    case "disable_daily_report":
     case "list_subscriptions":
       return Object.keys(value).length === 0 ? value : null;
     default:

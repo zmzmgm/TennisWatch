@@ -17,7 +17,7 @@ class SequenceClient implements LlmClient {
 }
 
 describe("agent tool calling", () => {
-  it("publishes only the seven declared tools", () => {
+  it("publishes only the declared tools", () => {
     expect(toolDefinitions.map((tool) => tool.function.name)).toEqual([
       "search_facilities",
       "search_availability",
@@ -26,6 +26,9 @@ describe("agent tool calling", () => {
       "update_subscription",
       "delete_subscription",
       "list_subscriptions",
+      "set_daily_report",
+      "get_daily_report",
+      "disable_daily_report",
     ]);
     expect(toolDefinitions.every((tool) => tool.function.parameters.additionalProperties === false)).toBe(true);
   });
@@ -133,7 +136,7 @@ describe("OpenAI-compatible API client", () => {
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-key");
       const body = JSON.parse(String(init?.body)) as { max_tokens: number; tools: unknown[] };
       expect(body.max_tokens).toBe(321);
-      expect(body.tools).toHaveLength(7);
+      expect(body.tools).toHaveLength(10);
       return Response.json({
         choices: [{ message: { content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "list_subscriptions", arguments: "{}" } }] } }],
         usage: { prompt_tokens: 12, completion_tokens: 3 },

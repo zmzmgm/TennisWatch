@@ -20,6 +20,7 @@ from .collectors.base import CollectionError
 from .notifications import TelegramConfig, TelegramSender
 from .services import dispatch_due_notifications
 from .onboarding import link_telegram, subscribe_gangseo
+from .daily_reports import configure_daily_report, enqueue_daily_reports
 from .deployment import configuration, prepare_worker, register_webhook, check_worker_db, worker_status, check_gemini_models
 
 
@@ -88,8 +89,9 @@ def _watch(factory, days_ahead: int, poll_interval_minutes=None) -> tuple[int, i
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(prog="tenniswatch")
-    parser.add_argument("command", choices=["init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models"])
+    parser.add_argument("command", choices=["init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
     parser.add_argument("--date", help="확인/구독할 날짜 (YYYY-MM-DD)")
+    parser.add_argument("--report-time", help="매일 결과를 받을 한국 시각 HH:MM")
     parser.add_argument("--start-time", help="감시 시작 시각 HH:MM")
     parser.add_argument("--end-time", help="감시 종료 시각 HH:MM")
     parser.add_argument("--policy-id", type=int, help="출처를 확인한 정책의 DB ID")
@@ -196,6 +198,39 @@ def main() -> None:
         parser.error("수집 범위와 간격은 정수여야 합니다.")
     if not 0 <= days_ahead <= 31 or interval not in (None, 30, 60):
         parser.error("WATCH_DAYS_AHEAD는 0~31, WATCH_INTERVAL_MINUTES는 빈 값·30·60을 사용하세요.")
+    if args.command in ("set-daily-report", "disable-daily-report"):
+        from .models import DailyReportSetting, TelegramUser
+        import re
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if not chat_id:
+            parser.error("연결한 TELEGRAM_CHAT_ID 설정이 필요합니다.")
+        if args.command == "set-daily-report" and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", args.report_time or ""):
+            parser.error("--report-time HH:MM 형식으로 한국 시각을 지정하세요.")
+        with factory.begin() as session:
+            user = session.scalar(select(TelegramUser).where(TelegramUser.chat_id == chat_id))
+            if user is None or not user.enabled:
+                parser.error("연결한 활성 사용자를 찾지 못했습니다.")
+            existing = session.get(DailyReportSetting, user.id)
+            if args.command == "disable-daily-report":
+                if existing:
+                    configure_daily_report(session,user.id,existing.minute_of_day,enabled=False)
+                result = {"saved":True,"enabled":False}
+            else:
+                hour, minute = map(int,args.report_time.split(":"))
+                setting = configure_daily_report(session,user.id,hour*60+minute)
+                result = {"saved":True,"local_time":args.report_time,"timezone":"Asia/Seoul",
+                    "next_run_at":setting.next_run_at.isoformat(),"scope":"existing_availability_watches"}
+        print(json.dumps(result, ensure_ascii=False))
+        return
+    if args.command == "daily-reports":
+        if not os.getenv("TELEGRAM_BOT_TOKEN"):
+            parser.error("TELEGRAM_BOT_TOKEN 설정이 필요합니다.")
+        queued = enqueue_daily_reports(factory)
+        sent, failed = _deliver(factory)
+        print(json.dumps({"queued":queued,"sent":sent,"failed":failed}))
+        if failed:
+            raise SystemExit(1)
+        return
     if args.command == "collection-plan":
         registry = default_registry()
         with factory() as session:
