@@ -181,3 +181,16 @@ VALUES (<USER_ID>, <FACILITY_ID>, '6,7', '09:00', '18:00', true);
 ```
 
 보안 마이그레이션 `0002`는 모든 앱 테이블에서 Supabase REST의 익명/로그인 역할을 RLS로 차단합니다. 앱의 비밀 `DATABASE_URL`로 연결하는 postgres 역할은 운영을 계속할 수 있습니다. 새 코드를 받은 뒤 `alembic upgrade head`를 실행해 적용하세요.
+
+### 인천 계양테니스장 잔여석 수집
+
+실내·실외 각 3면의 선택 목록과 날짜 전체 시간표를 검증하는 어댑터 및
+`probe-gyeyang --date YYYY-MM-DD`, `init-gyeyang --date YYYY-MM-DD` 명령을 추가했습니다.
+실제 점검 성공 전 시설을 자동 등록하지 않습니다. 2026-10-26 사용자 실행에서
+실내·실외 6면의 96개 시간대 수집 성공을 확인했습니다. 모두 예약 가능 아님으로
+나왔으며 예약 예정도 포함하므로 매진으로 해석하지 않습니다. 후속 사용자 실행에서
+DB 등록과 수동 감시(대상 2곳·관측 99개·오류 0개)도 성공했습니다.
+계양 정기 운영, 실제 예약 가능 슬롯 판정 및 알림 발송은 별도 확인이 필요합니다.
+[정책 조사·실행 방법·지원 제한](docs/gyeyang-reservation-policy.md)을 확인하세요.
+HTTP 응답의 동적 선택 목록이 비어 있으면 Playwright로 로딩을 기다립니다.
+최초 실행 전에 `.venv/bin/python -m playwright install chromium`으로 브라우저를 설치하세요.

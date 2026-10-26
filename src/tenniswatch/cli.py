@@ -11,12 +11,13 @@ from sqlalchemy import select
 
 from .collectors.base import FacilityRef
 from .collectors.gangseo import BASE_URL, GangseoCollector
+from .collectors.gyeyang import GyeyangCollector, FACILITY_KEY as GYEYANG_KEY, BOOKING_URL as GYEYANG_URL
 from .database import advisory_job_lock, make_session_factory
 from .models import Court, Facility, ReservationPolicy, ReservationSite, Subscription
 from .collection import build_collection_plan, collect_targets
 from .opening import check_opening_schedules, track_policy_change
 from .collectors.registry import default_registry
-from .collectors.base import CollectionError
+from .collectors.base import CollectionError, safe_failure_details
 from .notifications import TelegramConfig, TelegramSender
 from .services import dispatch_due_notifications
 from .onboarding import link_telegram, subscribe_gangseo
@@ -89,7 +90,7 @@ def _watch(factory, days_ahead: int, poll_interval_minutes=None) -> tuple[int, i
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(prog="tenniswatch")
-    parser.add_argument("command", choices=["init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
+    parser.add_argument("command", choices=["init-gyeyang", "probe-gyeyang", "init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
     parser.add_argument("--date", help="확인/구독할 날짜 (YYYY-MM-DD)")
     parser.add_argument("--report-time", help="매일 결과를 받을 한국 시각 HH:MM")
     parser.add_argument("--start-time", help="감시 시작 시각 HH:MM")
@@ -99,6 +100,36 @@ def main() -> None:
     parser.add_argument("--url", help="배포한 Worker의 HTTPS 주소")
     parser.add_argument("--replace-webhook", action="store_true", help="기존 다른 웹훅 주소를 명시적으로 교체")
     args = parser.parse_args()
+    if args.command in ("probe-gyeyang", "init-gyeyang"):
+        try:
+            play_date = date.fromisoformat(args.date or "")
+        except ValueError:
+            parser.error("--date YYYY-MM-DD로 확인할 날짜를 지정하세요.")
+        if args.command == "init-gyeyang" and not os.getenv("DATABASE_URL"):
+            parser.error("DATABASE_URL이 필요합니다.")
+        try:
+            with GyeyangCollector() as collector:
+                observations = list(collector.collect_slots(
+                    FacilityRef(1, "계양테니스장", GYEYANG_KEY, GYEYANG_URL), play_date))
+                courts = collector.discover_courts()
+            if args.command == "init-gyeyang":
+                from .gyeyang import register_gyeyang
+                register_gyeyang(make_session_factory(), courts)
+            print(json.dumps({"ok": True, "registered": args.command == "init-gyeyang",
+                "date": play_date.isoformat(), "court_count": len(courts),
+                "slots": [{"court": obs.court_name, "starts_at": obs.starts_at.isoformat(),
+                    "ends_at": obs.ends_at.isoformat(), "available": obs.available,
+                    "observed_at": obs.observed_at.isoformat(), "booking_url": obs.booking_url}
+                    for obs in observations]}, ensure_ascii=False))
+        except Exception as exc:
+            code = exc.code if isinstance(exc, CollectionError) else "COLLECTION_FAILED"
+            result = {"ok": False, "error_code": code}
+            result["failure_details"] = safe_failure_details(exc)
+            if isinstance(exc, CollectionError) and hasattr(exc, "diagnostics"):
+                result["selection_diagnostics"] = exc.diagnostics
+            print(json.dumps(result, ensure_ascii=False))
+            raise SystemExit(1)
+        return
     if args.command in ("prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models"):
         env_path = Path(find_dotenv(usecwd=True) or (Path.cwd() / ".env"))
         try:
