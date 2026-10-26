@@ -24,7 +24,11 @@ const MAX_ROWS = 500;
 
 function ilikeContains(candidate: string | null | undefined, query: unknown): boolean {
   if (typeof query !== "string" || !query.trim()) return true;
-  return (candidate ?? "").toLocaleLowerCase("ko-KR").includes(query.trim().toLocaleLowerCase("ko-KR"));
+  // 공원 이름과 예약 사이트의 시설명, 띄어쓰기 차이를 함께 허용한다.
+  const normalized = (value: string) => value.toLocaleLowerCase("ko-KR")
+    .replace(/근린공원/g, "").replace(/[\s()·]/g, "");
+  const needle = normalized(query);
+  return needle.length > 0 && normalized(candidate ?? "").includes(needle);
 }
 
 function hhmm(value: string | null | undefined): string {

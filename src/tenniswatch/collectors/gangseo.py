@@ -1,4 +1,4 @@
-"""Read-only collector for the verified public Gangseo Wujang 1-court calendar.
+"""강서 공개 예약 달력의 코트 발견 및 읽기 전용 잔여석 수집.
 
 The reservation form contains a CAPTCHA, but the public availability calendar is
 rendered before it. This adapter never reads or submits the CAPTCHA form.
@@ -6,6 +6,7 @@ rendered before it. This adapter never reads or submits the CAPTCHA form.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from dataclasses import dataclass
 import re
 import time as clock
 from typing import Iterable
@@ -22,8 +23,58 @@ from ..domain import SlotObservation
 BASE_URL = "https://sports.gangseo.seoul.kr"
 BOOKING_PATH = "/fmcs/28"
 
-# This identifier is taken from the site's public Wujang reservation link and was
-# verified in the rendered page as 우장산 테니스장 > 1코트.
+# 공식 /fmcs/64의 각 시설 '예약하기' 링크에서 확인했다. 번호를 순회하지 않는다.
+FACILITY_CATALOG = {
+    "GANGSEO02:T:03": {"name": "우장산근린공원 테니스장", "entry_place": "2"},
+    "GANGSEO03:T:02": {"name": "강서구립테니스장", "entry_place": "3"},
+    "GANGSEO05:C:02": {"name": "황금내근린공원 테니스장", "entry_place": "1"},
+}
+
+
+@dataclass(frozen=True)
+class GangseoCourt:
+    external_id: str
+    facility_name: str
+    court_name: str
+
+    @property
+    def name(self):
+        return f"{self.facility_name} {self.court_name}"
+
+
+def config_for_id(external_id: str) -> dict[str, str]:
+    parts = external_id.split(":")
+    if len(parts) != 4 or ":".join(parts[:3]) not in FACILITY_CATALOG or not re.fullmatch(r"[1-9][0-9]{0,7}", parts[3]):
+        raise ValueError("지원하지 않는 강서 시설 식별자입니다.")
+    return dict(zip(("center", "facilities_type", "part", "place"), parts), rent_type="1001")
+
+
+def parse_court_options(options, group: str) -> tuple[GangseoCourt, ...]:
+    """실제 선택 목록만 받아 파싱한다. 예시 번호나 물리적 면수로 채우지 않는다."""
+    if group not in FACILITY_CATALOG:
+        raise CollectionError("UNSUPPORTED_FACILITY", "지원하지 않는 강서 시설입니다.")
+    courts = []
+    seen = set()
+    labels = set()
+    for option in options:
+        value, label = str(option.get("value", "")), str(option.get("label", "")).strip()
+        if not value or option.get("disabled"):
+            continue
+        if value in ("0", "-1") and "선택" in label:
+            continue
+        if (not re.fullmatch(r"[1-9][0-9]{0,7}", value) or not label or len(label) > 80
+            or any(word in label for word in ("불러오기", "오류", "선택", "없음"))
+            or value in seen or label in labels):
+            raise CollectionError("COURT_INVENTORY_UNVERIFIED", "코트 선택 목록을 확인하지 못했습니다.")
+        seen.add(value)
+        labels.add(label)
+        courts.append(GangseoCourt(f"{group}:{value}", FACILITY_CATALOG[group]["name"], label))
+    if not 1 <= len(courts) <= 20:
+        raise CollectionError("COURT_INVENTORY_UNVERIFIED", "코트 선택 목록이 비어 있거나 변경됐습니다.")
+    return tuple(courts)
+
+# 기존 외부 사용자의 import 호환용 1코트 상수다. 전체 지원 범위는 FACILITY_CATALOG와
+# 실제 발견한 선택 목록을 사용하며, 여기에 다른 코트 번호를 추정해 채우지 않는다.
 SUPPORTED_FACILITIES = {
     "GANGSEO02:T:03:2": {
         "center": "GANGSEO02",
@@ -43,7 +94,7 @@ KST = timezone(timedelta(hours=9))
 
 class GangseoCollector(BaseCollector):
     site_key = "gangseo_seoul"
-    capabilities = CollectorCapabilities(requires_browser=True)
+    capabilities = CollectorCapabilities(requires_browser=True, court_discovery=True)
 
     def __init__(self, *, timeout_ms: int = 25_000, min_interval_seconds: float = 5,
                  robots_guard: RobotsGuard | None = None) -> None:
@@ -89,22 +140,13 @@ class GangseoCollector(BaseCollector):
         self.close()
 
     def _config(self, facility: FacilityRef) -> dict[str, str]:
-        try:
-            return SUPPORTED_FACILITIES[facility.external_id]
-        except KeyError as exc:
-            raise ValueError(
-                f"Unverified Gangseo facility identifier: {facility.external_id!r}; "
-                "only Wujang 1-court is currently verified."
-            ) from exc
+        return config_for_id(facility.external_id)
 
     @staticmethod
-    def booking_url_for(external_id: str, play_date: date) -> str:
-        try:
-            config = SUPPORTED_FACILITIES[external_id]
-        except KeyError as exc:
-            raise ValueError(f"Unverified Gangseo facility identifier: {external_id!r}") from exc
-        params = {key: value for key, value in config.items() if key != "court_name"}
-        params["base_date"] = play_date.strftime("%Y%m%d")
+    def booking_url_for(external_id: str, play_date: date | None = None) -> str:
+        params = config_for_id(external_id)
+        if play_date is not None:
+            params["base_date"] = play_date.strftime("%Y%m%d")
         return f"{BASE_URL}{BOOKING_PATH}?{urlencode(params)}#regist_list"
 
     @staticmethod
@@ -165,7 +207,7 @@ class GangseoCollector(BaseCollector):
                 available=available,
                 booking_url=booking_url,
                 observed_at=observed_at,
-                court_external_id=SUPPORTED_FACILITIES[facility.external_id]["place"],
+                court_external_id=config_for_id(facility.external_id)["place"],
             ))
         if unknown_rows:
             raise CollectionError("UNKNOWN_STATUS", "Unrecognized availability status in Gangseo table; refusing partial data.")
@@ -181,9 +223,7 @@ class GangseoCollector(BaseCollector):
         if actual_date.replace("-", "") != play_date.strftime("%Y%m%d"):
             raise CollectionError("PAGE_DATE_MISMATCH", "Gangseo selected date could not be verified.")
 
-    def collect_slots(self, facility: FacilityRef, play_date: date) -> Iterable[SlotObservation]:
-        config = self._config(facility)
-        url = self.booking_url_for(facility.external_id, play_date)
+    def _navigate(self, url: str):
         self.robots_guard.check(url)
         interval = max(self.min_interval_seconds, self.robots_guard.minimum_interval_seconds)
         if interval > 60:
@@ -205,6 +245,39 @@ class GangseoCollector(BaseCollector):
             raise CollectionError("HTTP_ERROR", "Gangseo calendar did not return a successful response.")
         if urlsplit(page.url).netloc != urlsplit(BASE_URL).netloc or urlsplit(page.url).path != BOOKING_PATH:
             raise CollectionError("UNEXPECTED_PAGE", "Gangseo redirected away from the public calendar.")
+        return page
+
+    def discover_courts(self) -> tuple[GangseoCourt, ...]:
+        """공식 세 시설의 선택 목록을 모두 검증한 뒤 결과를 반환한다."""
+        result = []
+        for group, info in FACILITY_CATALOG.items():
+            external_id = f"{group}:{info['entry_place']}"
+            config = config_for_id(external_id)
+            page = self._navigate(self.booking_url_for(external_id))
+            try:
+                page.wait_for_function("""expected => ['center','part'].every(
+                    id => document.getElementById(id)?.value === expected[id]) &&
+                    Array.from(document.querySelectorAll('select#place option')).some(
+                    option => !option.disabled && option.value === expected.place)""", arg=config,
+                    timeout=self.timeout_ms)
+            except BrowserTimeout:
+                raise CollectionError("COURT_DISCOVERY_TIMEOUT", "시설과 코트 선택 목록이 로딩되지 않았습니다.") from None
+            snapshot = page.evaluate("""() => ({
+                selected: Object.fromEntries(['center','part'].map(id => [id, document.getElementById(id)?.value])),
+                options: Array.from(document.querySelectorAll('select#place option')).map(
+                  option => ({value: option.value, label: option.textContent, disabled: option.disabled}))})""")
+            if snapshot["selected"] != {key: config[key] for key in ("center", "part")}:
+                raise CollectionError("PAGE_SELECTION_MISMATCH", "발견 중 시설 선택이 변경됐습니다.")
+            courts = parse_court_options(snapshot["options"], group)
+            if not any(item.external_id == external_id for item in courts):
+                raise CollectionError("COURT_INVENTORY_UNVERIFIED", "공식 링크의 코트가 선택 목록에 없습니다.")
+            result.extend(courts)
+        return tuple(result)
+
+    def collect_slots(self, facility: FacilityRef, play_date: date) -> Iterable[SlotObservation]:
+        config = self._config(facility)
+        url = self.booking_url_for(facility.external_id, play_date)
+        page = self._navigate(url)
         try:
             page.wait_for_function("""expected => ['center','part','place'].every(
                 id => document.getElementById(id)?.value === expected[id])""", arg=config,
@@ -220,5 +293,17 @@ class GangseoCollector(BaseCollector):
         selected = {field: page.locator(f"select#{field}").input_value() for field in ("center", "part", "place")}
         actual_date = page.locator('input[name="base_date"]').input_value().replace("-", "")
         self._validate_context(selected, actual_date, config, play_date)
-        return self._parse_slots(page.content(), facility, play_date,
-                                 config["court_name"], url)
+        # 선택값과 시간표를 같은 DOM 실행에서 읽어 AJAX 갱신 사이의 혼합을 막는다.
+        snapshot = page.evaluate("""() => ({
+            selected: Object.fromEntries(['center','part','place'].map(id => [id, document.getElementById(id)?.value])),
+            actual_date: document.querySelector('input[name="base_date"]')?.value || '',
+            court_name: document.getElementById('place')?.selectedOptions[0]?.textContent || '',
+            html: Array.from(document.querySelectorAll('table')).find(table =>
+              [table.textContent, table.getAttribute('summary'), table.getAttribute('aria-label'), table.title]
+              .join(' ').includes('예약 시간 선택'))?.outerHTML || ''})""")
+        self._validate_context(snapshot["selected"], snapshot["actual_date"], config, play_date)
+        court_name = snapshot["court_name"].strip()
+        if not court_name or len(court_name) > 80:
+            raise CollectionError("COURT_INVENTORY_UNVERIFIED", "선택한 코트 이름을 확인하지 못했습니다.")
+        return self._parse_slots(snapshot["html"], facility, play_date,
+                                 court_name, url)

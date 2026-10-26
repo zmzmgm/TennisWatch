@@ -69,4 +69,5 @@ def test_live_dom_date_and_court_must_match_before_parsing():
 def test_capabilities_do_not_claim_policy_or_site_discovery_support():
     capabilities = GangseoCollector.capabilities
     assert capabilities.slots and capabilities.requires_browser
-    assert not capabilities.policies and not capabilities.facility_discovery and not capabilities.court_discovery
+    assert not capabilities.policies and not capabilities.facility_discovery
+    assert capabilities.court_discovery

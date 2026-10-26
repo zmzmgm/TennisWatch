@@ -10,7 +10,7 @@ from dotenv import find_dotenv, load_dotenv, set_key
 from sqlalchemy import select
 
 from .collectors.base import FacilityRef
-from .collectors.gangseo import BASE_URL, GangseoCollector
+from .collectors.gangseo import BASE_URL, GangseoCollector, FACILITY_CATALOG, config_for_id
 from .collectors.gyeyang import GyeyangCollector, FACILITY_KEY as GYEYANG_KEY, BOOKING_URL as GYEYANG_URL
 from .database import advisory_job_lock, make_session_factory
 from .models import Court, Facility, ReservationPolicy, ReservationSite, Subscription
@@ -91,7 +91,8 @@ def _watch(factory, days_ahead: int, poll_interval_minutes=None) -> tuple[int, i
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(prog="tenniswatch")
-    parser.add_argument("command", choices=["init-gyeyang-opening", "opening-status", "init-gyeyang", "probe-gyeyang", "init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
+    parser.add_argument("command", choices=["discover-gangseo", "init-gangseo-all", "init-gyeyang-opening", "opening-status", "init-gyeyang", "probe-gyeyang", "init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
+    parser.add_argument("--facility", help="probe-gangseo로 점검할 코트 외부 식별자(discover-gangseo 출력값)")
     parser.add_argument("--date", help="확인/구독할 날짜 (YYYY-MM-DD)")
     parser.add_argument("--report-time", help="매일 결과를 받을 한국 시각 HH:MM")
     parser.add_argument("--start-time", help="감시 시작 시각 HH:MM")
@@ -101,6 +102,33 @@ def main() -> None:
     parser.add_argument("--url", help="배포한 Worker의 HTTPS 주소")
     parser.add_argument("--replace-webhook", action="store_true", help="기존 다른 웹훅 주소를 명시적으로 교체")
     args = parser.parse_args()
+    if args.command in ("discover-gangseo", "init-gangseo-all"):
+        if args.command == "init-gangseo-all" and not os.getenv("DATABASE_URL"):
+            parser.error("DATABASE_URL이 필요합니다.")
+        try:
+            if args.command == "init-gangseo-all":
+                from .gangseo import register_gangseo_courts
+                factory = make_session_factory()
+                with factory() as lock_session:
+                    with advisory_job_lock(lock_session, 0x54454E4E495357) as acquired:
+                        if not acquired:
+                            parser.error("다른 감시 작업이 실행 중입니다. 잠시 후 다시 등록하세요.")
+                        with GangseoCollector() as collector:
+                            courts = collector.discover_courts()
+                        register_gangseo_courts(factory, courts)
+            else:
+                with GangseoCollector() as collector:
+                    courts = collector.discover_courts()
+            print(json.dumps({"ok": True, "registered": args.command == "init-gangseo-all",
+                "facility_count": len(FACILITY_CATALOG), "court_count": len(courts),
+                "availability_checked": False, "courts": [{"external_id": item.external_id,
+                "facility": item.facility_name, "court": item.court_name,
+                "booking_url": GangseoCollector.booking_url_for(item.external_id)} for item in courts]}, ensure_ascii=False))
+        except Exception as exc:
+            code = exc.code if isinstance(exc, CollectionError) else "DISCOVERY_OR_REGISTRATION_FAILED"
+            print(json.dumps({"ok": False, "error_code": code}, ensure_ascii=False))
+            raise SystemExit(1)
+        return
     if args.command in ("probe-gyeyang", "init-gyeyang"):
         try:
             play_date = date.fromisoformat(args.date or "")
@@ -183,7 +211,12 @@ def main() -> None:
             play_date = date.fromisoformat(args.date or "")
         except ValueError:
             parser.error("probe-gangseo requires --date YYYY-MM-DD")
-        facility = FacilityRef(1, GANGSEO_FACILITY_NAME, GANGSEO_EXT_ID, BASE_URL)
+        external_id = args.facility or GANGSEO_EXT_ID
+        try:
+            config_for_id(external_id)
+        except ValueError:
+            parser.error("discover-gangseo에서 확인한 코트 외부 식별자를 지정하세요.")
+        facility = FacilityRef(1, FACILITY_CATALOG[external_id.rsplit(":", 1)[0]]["name"], external_id, BASE_URL)
         try:
             with GangseoCollector() as collector:
                 observations = list(collector.collect_slots(facility, play_date))

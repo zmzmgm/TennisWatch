@@ -30,7 +30,7 @@ def test_registry_and_unverified_gangseo_adapter():
     adapter = GangseoCollector()
     registry.register(adapter)
     assert registry.get("gangseo_seoul") is adapter
-    with pytest.raises(ValueError, match="only Wujang 1-court"):
+    with pytest.raises(ValueError, match="지원하지 않는 강서 시설"):
         list(adapter.collect_slots(FacilityRef(1, "court", "x", "https://sports.gangseo.seoul.kr/"), date.today()))
     with pytest.raises(ValueError):
         registry.register(adapter)
@@ -68,7 +68,7 @@ def test_gangseo_parser_fails_closed_on_unknown_page_or_status():
 def test_gangseo_collector_rejects_unverified_facilities():
     from tenniswatch.collectors.gangseo import GangseoCollector
     collector = GangseoCollector()
-    with pytest.raises(ValueError, match="only Wujang 1-court"):
+    with pytest.raises(ValueError, match="지원하지 않는 강서 시설"):
         collector._config(FacilityRef(7, "other", "UNKNOWN", "https://example.test"))
 
 

@@ -1,6 +1,6 @@
 # TennisWatch AI
 
-Telegram 자연어 대화와 Python 수집기를 사용하는 공공 테니스장 정보 비서입니다. 전국 확장이 목표이며, 현재 어댑터가 등록된 대상은 우장산 테니스장 1코트입니다. 예약을 자동으로 수행하지 않습니다.
+Telegram 자연어 대화와 Python 수집기를 사용하는 공공 테니스장 정보 비서입니다. 전국 확장이 목표이며, 강서 세 시설의 실제 코트 목록 발견과 인천 계양 수집 어댑터를 제공합니다. 실제 등록·수집 성공 여부는 시설별 기록으로 확인합니다. 예약을 자동으로 수행하지 않습니다.
 
 ## 현재 상태
 
@@ -12,7 +12,7 @@ Telegram 자연어 대화와 Python 수집기를 사용하는 공공 테니스�
 
 - Phase 1 분석: 기존 Python 수집기와 모니터링 기반을 확인하고, 확장 아키텍처를 `docs/phase1-architecture.md`에 정리했습니다.
 - 신규 구성은 Supabase PostgreSQL, SQLAlchemy 2.x/Alembic, GitHub Actions, Telegram Bot API를 기준으로 합니다.
-- 강서 어댑터는 우장산 테니스장 1코트의 공개 달력에 한정됩니다. Phase 5 현장 확인에서는 센터 목록이 불러오기 오류로 끝났으며 이 개발 환경에서는 실제 시간표 수집 성공을 검증하지 못했습니다. 사용자는 이후 실행 1회·슬롯 관측 3개·오류 0개를 보고했습니다. [확인 내용과 점검 절차](docs/gangseo-collector.md)를 참고하세요.
+- 강서 어댑터는 우장산근린공원·강서구립·황금내근린공원 테니스장의 공식 진입 링크와 실제 선택 목록을 사용합니다. `discover-gangseo`로 발견한 코트만 `init-gangseo-all`로 등록합니다. 기존 우장산 1코트 구독은 보존합니다. 이번 환경의 전체 코트 발견은 robots 확인 실패로 중단돼 새 코트의 실제 잔여석 수집은 미검증입니다. [확인 내용과 점검 절차](docs/gangseo-collector.md)를 참고하세요.
 
 ## 아키텍처
 
@@ -93,8 +93,8 @@ tenniswatch check-policies
 
 ### 검증 현황
 
-- `.venv/bin/pytest -q`: 120개 통과 (모의 DB·HTML·HTTP, 채팅 연결·구독 등록·감시·발송·오픈 일정 포함).
-- Worker `npm test`: 71개 통과, `npm run typecheck`: 통과.
+- `.venv/bin/pytest -q`: 185개 통과 (모의 DB·HTML·HTTP, 강서 세 시설 발견·등록·기존 구독 보존 포함).
+- Worker `npm test`: 74개 통과, `npm run typecheck`: 통과.
 - `.venv/bin/python -m compileall -q src tests alembic`: 통과.
 - Phase 5 실제 Chrome에서는 공개 예약 페이지가 열렸지만 센터 목록이 불러오기 오류로 끝났습니다. 로컬 실행은 DNS 접근 실패와 Chromium 미설치로 실제 시간표 수집을 검증하지 못했습니다. 이후 사용자는 Cloudflare·Telegram·Gemini·Supabase를 연결해 기존 감시 조건 조회 응답을 확인했습니다. Actions 정기 실행과 신규 잔여석 알림까지 검증된 것은 아닙니다.
 
@@ -114,7 +114,7 @@ tenniswatch check-policies
 
 - 추가: 시설 검색, 날짜별 잔여석 조회, 검증된 예약 오픈 일정 조회, 사용자별 감시 조건 CRUD, 24시간 대화 문맥 저장.
 - 추가: `0004`에서 사용자 Telegram ID, 시설 지역/지원 상태, 사용자 감시 조건, 감시 시설 연결, 대화 문맥, 도구 실행 멱등성 테이블과 트랜잭션 RPC를 확장합니다.
-- 우장산 테니스장 1코트만 어댑터 등록 대상으로 표시됩니다. 새 조건은 `PENDING_ACTIVATION`으로 저장되며 Phase 6 감시 작업의 첫 확인 후 `ACTIVE`로 전환됩니다.
+- 실제 발견·등록한 지원 시설을 도구로 조회합니다. 새 조건은 `PENDING_ACTIVATION`으로 저장되며 Phase 6 감시 작업의 첫 확인 후 `ACTIVE`로 전환됩니다.
 
 ### Phase 5 — 수집 경로와 데이터 신뢰도
 
@@ -138,12 +138,19 @@ tenniswatch check-policies
 
 공개 달력 URL과 센터·시설·장소 선택 필드, 날짜 필드, 예약 시간 선택 표를 확인했습니다. 2026-10-24 재확인에서는 센터 목록 오류로 선택된 코트의 실제 시간표를 확인하지 못했습니다. CAPTCHA를 읽거나 입력하지 않으며 예약자·팀 정보를 저장하지 않습니다. 시간대 상태나 페이지 문맥을 확인할 수 없으면 기존 슬롯을 유지합니다.
 
-어댑터 식별자가 등록된 대상은 우장산 테니스장 1코트입니다. 다른 코트와 시설은 식별자 및 수집 경로 확인 전까지 제외합니다. [우장산 이용안내](https://sports.gangseo.seoul.kr/fmcs/18)와 [공개 달력](https://sports.gangseo.seoul.kr/fmcs/28?center=GANGSEO02&facilities_type=T&part=03&place=2&rent_type=1001)을 참고하세요.
+기존 우장산 1코트와 함께 우장산근린공원·강서구립·황금내근린공원의 실제 발견 코트를 지원합니다. [공식 시설별 예약 링크](https://sports.gangseo.seoul.kr/fmcs/64)에서 진입 식별자를 확인했으며 황금내의 시설 구분값은 `C`입니다. 다른 코트 번호를 추정하지 않고 선택 목록을 검증합니다.
 
 최초 등록은 마이그레이션 후 한 번 실행합니다.
 
 ```bash
 tenniswatch init-gangseo
+```
+
+위 명령은 기존 1코트 호환용입니다. 세 시설의 전체 코트를 발견·등록하려면 다음 명령을 사용합니다. 등록은 잔여석 확인과 별개이며 기존 구독 범위를 자동 확대하지 않습니다.
+
+```bash
+.venv/bin/tenniswatch discover-gangseo
+.venv/bin/tenniswatch init-gangseo-all
 ```
 
 수집은 활성화된 기존 구독 또는 새 감시 조건에 연결된 시설만 대상으로 합니다. 기존 구독의 요일은 ISO 숫자(월요일 `1`~일요일 `7`, 쉼표 구분), 시간은 `HH:MM`입니다. 새 감시 조건은 특정 날짜 또는 요일 목록을 사용합니다. `WATCH_DAYS_AHEAD` 기본값은 7일이며 최대 31일입니다.

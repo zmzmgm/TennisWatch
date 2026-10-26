@@ -26,6 +26,16 @@ function facility(overrides: Record<string, unknown> = {}) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Supabase tennis tools", () => {
+  it.each([
+    ["우장산 테니스장 1코트", "우장산근린공원 테니스장"],
+    ["황금내근린공원 테니스장 1코트", "황금내테니스장"],
+    ["강서구립테니스장 1코트", "강서 구립 테니스장"],
+  ])("matches park names and spacing (%s)", async (name, query) => {
+    vi.stubGlobal("fetch", vi.fn(async () => responseJson([facility({ name })])));
+    expect(await new SupabaseTennisTools(env).searchFacilities({ query }))
+      .toMatchObject({ ok: true, data: { facilities: [{ facility_id: 4 }] } });
+  });
+
   it("returns only facilities marked as supported and states the coverage limit", async () => {
     const fetchMock = vi.fn(async () => responseJson([facility(), facility({
       id: 5,

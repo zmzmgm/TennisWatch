@@ -275,6 +275,14 @@ def test_weekly_policy_remains_verified_after_reload_and_activates_watch(db):
     with db() as session:
         assert session.scalar(select(ReservationPolicy)).verified
         assert session.scalar(select(UserWatch)).monitoring_status == "ACTIVE"
+    # 정책 재승인이 일정을 무효화한 뒤에도 다음 점검은 검증된 규칙으로 복구한다.
+    with db.begin() as session:
+        session.scalar(select(ReservationSchedule)).verified = False
+    recovered = check_opening_schedules(db, now=checked, activate_watches=True)
+    assert recovered["policy_changes"] == 0
+    assert recovered["notifications"] == 0
+    with db() as session:
+        assert session.scalar(select(ReservationSchedule)).verified
 
 
 def test_policy_status_diagnostic_exposes_only_rule_values():
