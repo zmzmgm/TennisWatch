@@ -67,6 +67,9 @@ export async function processInboxBatch(deps: RuntimeDeps): Promise<{ processed:
             reply = { text: error.code === "LLM_QUOTA_EXCEEDED"
               ? "AI 서비스의 이용 한도가 부족해 요청을 처리하지 못했어요. API 크레딧과 결제·사용 한도 설정을 확인해 주세요."
               : "AI 연결 설정 오류로 요청을 처리하지 못했어요. API 키와 모델 접근 권한을 확인해 주세요." };
+          } else if (error instanceof LlmRequestError &&
+            ["LLM_NETWORK_FAILED", "LLM_TIMEOUT"].includes(error.code) && message.attempts >= 2) {
+            reply = { text: "AI 연결이 반복해서 실패해 자동 재시도를 중단했어요. 요청의 최종 결과를 확인하지 못했어요. 일부 변경이 저장됐을 수 있으니 대시보드에서 감시 조건을 확인해 주세요." };
           } else {
             throw error;
           }

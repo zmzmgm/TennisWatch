@@ -38,7 +38,7 @@ interface ChatCompletionsResponse {
 
 export const LLM_FAILURE_CODES = [
   "LLM_AUTH_FAILED", "LLM_ACCESS_DENIED", "LLM_MODEL_NOT_FOUND", "LLM_QUOTA_EXCEEDED",
-  "LLM_RATE_LIMITED", "LLM_INVALID_REQUEST", "LLM_PROVIDER_ERROR", "LLM_NETWORK_FAILED",
+  "LLM_RATE_LIMITED", "LLM_INVALID_REQUEST", "LLM_PROVIDER_ERROR", "LLM_NETWORK_FAILED", "LLM_TIMEOUT",
 ] as const;
 export type LlmFailureCode = typeof LLM_FAILURE_CODES[number];
 export class LlmRequestError extends Error {
@@ -60,10 +60,11 @@ export class OpenAICompatibleClient implements LlmClient {
     if (!this.options.apiKey || !this.options.model) throw new Error("LLM configuration is missing");
     const fetcher = this.options.fetcher ?? fetch;
     let response: Response;
+    const signal = AbortSignal.timeout(15000);
     try {
       response = await fetcher(this.options.endpoint ?? "https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      signal: AbortSignal.timeout(15000),
+      signal,
       headers: {
         Authorization: `Bearer ${this.options.apiKey}`,
         "Content-Type": "application/json",
@@ -77,8 +78,9 @@ export class OpenAICompatibleClient implements LlmClient {
         max_tokens: this.options.maxTokens ?? 700,
       }),
     });
-    } catch {
-      throw new LlmRequestError("LLM_NETWORK_FAILED");
+    } catch (error) {
+      throw new LlmRequestError(signal.aborted || (error instanceof Error && error.name === "TimeoutError")
+        ? "LLM_TIMEOUT" : "LLM_NETWORK_FAILED");
     }
     if (!response.ok) {
       let code: LlmFailureCode;
@@ -105,7 +107,9 @@ export class OpenAICompatibleClient implements LlmClient {
     let payload: ChatCompletionsResponse;
     try {
       payload = (await response.json()) as ChatCompletionsResponse;
-    } catch {
+    } catch (error) {
+      if (signal.aborted || (error instanceof Error && error.name === "TimeoutError")) throw new LlmRequestError("LLM_TIMEOUT");
+      if (error instanceof TypeError) throw new LlmRequestError("LLM_NETWORK_FAILED");
       throw new Error("LLM response was not valid JSON");
     }
     const rawMessage = payload.choices?.[0]?.message;

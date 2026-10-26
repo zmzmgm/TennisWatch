@@ -358,6 +358,7 @@ def main() -> None:
             if args.command == "init-gyeyang-opening":
                 from datetime import datetime, timedelta, timezone
                 from zoneinfo import ZoneInfo
+                from .policy_rules import play_dates_for_opening_horizon
                 from .services import calculate_schedules
                 from .opening import policy_can_notify
                 now = datetime.now(timezone.utc)
@@ -370,15 +371,20 @@ def main() -> None:
                     facility_id = facility.id
                 refreshed = refresh_policies(factory, now=now, facility_id=facility_id, force=True)
                 ready = False
+                schedule_count = 0
                 with factory.begin() as session:
                     policies = list(session.scalars(select(ReservationPolicy).where(ReservationPolicy.facility_id == facility_id)))
                     usable = [policy for policy in policies if policy_can_notify(policy, now)]
                     if len(usable) == 1:
                         today = now.astimezone(ZoneInfo("Asia/Seoul")).date()
-                        calculate_schedules(session, facility_id, [today + timedelta(days=i) for i in range(32)], usable)
+                        policy = usable[0]
+                        schedule_count = calculate_schedules(session, facility_id,
+                            play_dates_for_opening_horizon(today, policy), usable,
+                            opens_after=now, opens_before=now + timedelta(days=366))
                         ready = True
                     policy_ids = [policy.id for policy in policies]
                 print(json.dumps({**refreshed, "policy_ready": ready, "policy_ids": policy_ids,
+                                  "schedules": schedule_count, "schedule_horizon_days": 366,
                                   "subscription_created": False, "sent": 0}, ensure_ascii=False))
                 if not ready:
                     raise SystemExit(1)

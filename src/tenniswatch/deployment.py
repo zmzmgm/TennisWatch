@@ -189,6 +189,8 @@ def check_worker_db(values, *, client=None):
 def worker_status(values, *, client=None):
     """Inspect delivery state without reading message text or invoking the model."""
     from collections import Counter
+    from datetime import datetime, timezone
+    checked_at = datetime.now(timezone.utc)
     owns_client = client is None
     client = client or httpx.Client(timeout=15, follow_redirects=False)
     result = {}
@@ -196,14 +198,14 @@ def worker_status(values, *, client=None):
         'CONTEXT_LOAD_FAILED', 'AGENT_FAILED', 'CONTEXT_SAVE_FAILED', 'REPLY_STORE_FAILED',
         'TELEGRAM_SEND_FAILED', 'INBOX_COMPLETE_FAILED', 'LLM_AUTH_FAILED', 'LLM_ACCESS_DENIED',
         'LLM_MODEL_NOT_FOUND', 'LLM_QUOTA_EXCEEDED', 'LLM_RATE_LIMITED', 'LLM_INVALID_REQUEST',
-        'LLM_PROVIDER_ERROR', 'LLM_NETWORK_FAILED'}
+        'LLM_PROVIDER_ERROR', 'LLM_NETWORK_FAILED', 'LLM_TIMEOUT'}
     try:
         base, key, token = (values.get(name, '') for name in ('SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'TELEGRAM_BOT_TOKEN'))
         url = urlsplit(base)
         if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
             raise ValueError('SUPABASE_URL 형식을 확인하세요.')
         for table, fields, time_field, states in (
-            ('telegram_updates', 'status,attempts,last_error', 'received_at', {'pending','processing','processed','failed'}),
+            ('telegram_updates', 'status,attempts,last_error,next_attempt_at,lease_until', 'received_at', {'pending','processing','processed','failed'}),
             ('llm_usage', 'status,error_code', 'created_at', {'RESERVED','COMPLETE','FAILED'}),
         ):
             try:
@@ -222,6 +224,25 @@ def worker_status(values, *, client=None):
                     'states': dict(Counter(row.get('status') if row.get('status') in states else 'OTHER' for row in rows)),
                     'errors': dict(Counter(code if isinstance(code, str) and code in safe_codes else 'OTHER' for code in errors if code)),
                     'max_attempts': max((row.get('attempts', 0) for row in rows if type(row.get('attempts', 0)) is int), default=0)}
+                if table == 'telegram_updates':
+                    waiting = []
+                    for row in rows:
+                        if row.get('status') not in ('pending', 'processing'):
+                            continue
+                        field = 'next_attempt_at' if row['status'] == 'pending' else 'lease_until'
+                        entry = {'status': row['status'], 'attempts': row.get('attempts') if type(row.get('attempts')) is int else None}
+                        try:
+                            at = datetime.fromisoformat(row.get(field, '').replace('Z', '+00:00'))
+                            if at.tzinfo is None:
+                                raise ValueError('Timezone required')
+                            entry[field] = at.astimezone(timezone.utc).isoformat()
+                            entry['due'] = at <= checked_at
+                            entry['seconds_until_due'] = max(0, int((at - checked_at).total_seconds()))
+                        except (ValueError, TypeError, AttributeError, OverflowError):
+                            entry['timing_available'] = False
+                        waiting.append(entry)
+                    result[table]['waiting'] = waiting
+                    result[table]['checked_at'] = checked_at.isoformat()
             except httpx.HTTPError as error:
                 result[table] = {'code': _connection_failure_code(error)}
             except ValueError:

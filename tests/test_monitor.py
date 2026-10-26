@@ -239,7 +239,8 @@ def add_policy(factory, *, verified=True, audience="resident", days=2):
 
 
 def test_verified_opening_reminders_have_disjoint_delay_windows_and_are_idempotent(db):
-    add_watch(db, kind="opening", status="PENDING_ACTIVATION", criteria={"play_date": OPEN_PLAY.isoformat(), "audience": "resident"})
+    add_watch(db, kind="opening", status="PENDING_ACTIVATION", criteria={"play_date": OPEN_PLAY.isoformat(), "audience": "resident",
+        "reminders": ["day_before", "hour_before", "opened"]})
     add_policy(db)
     day_before = OPENS - timedelta(hours=23)
     result = check_opening_schedules(db, now=day_before, activate_watches=True)

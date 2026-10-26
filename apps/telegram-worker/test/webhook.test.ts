@@ -1,3 +1,4 @@
+import { LlmRequestError } from "../src/agent/llm";
 import { describe, expect, it, vi } from "vitest";
 import { handleWebhook, processInboxBatch } from "../src/telegram/webhook";
 import type { InboxRepository, RuntimeDeps, TelegramTextUpdate } from "../src/types";
@@ -111,4 +112,21 @@ describe("inbox delivery", () => {
     expect(await processInboxBatch(runtime)).toEqual({ processed: 0, failed: 1 });
     expect(runtime.repo.markFailure).toHaveBeenCalledWith(88, "lease-1", "TELEGRAM_SEND_FAILED", 1);
   });
+});
+
+
+it.each(["LLM_NETWORK_FAILED", "LLM_TIMEOUT"] as const)('bounds retries and saves a failure reply for %s', async code => {
+  const runtime = deps({ assistant: { respond: vi.fn().mockRejectedValue(new LlmRequestError(code)) } });
+  const message = { update_id: 88, telegram_user_id: 123, chat_id: 123, message_text: "hi", attempts: 1, lease_token: "lease-1" };
+  vi.mocked(runtime.repo.claim).mockResolvedValue([message]);
+  expect(await processInboxBatch(runtime)).toEqual({ processed: 0, failed: 1 });
+  expect(runtime.repo.markFailure).toHaveBeenCalledWith(88, "lease-1", code, 1);
+  expect(runtime.telegram.sendMessage).not.toHaveBeenCalled();
+  message.attempts = 2;
+  expect(await processInboxBatch(runtime)).toEqual({ processed: 1, failed: 0 });
+  const reply = vi.mocked(runtime.repo.storeReply).mock.calls[0][2];
+  expect(reply).toContain("일부 변경이 저장됐을 수");
+  vi.mocked(runtime.repo.claim).mockResolvedValue([{ ...message, response_text: reply, attempts: 3 }]);
+  await processInboxBatch(runtime);
+  expect(runtime.assistant!.respond).toHaveBeenCalledTimes(2);
 });

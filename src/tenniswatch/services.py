@@ -166,7 +166,8 @@ def process_observation(session: Session, obs: SlotObservation, *, now=None) -> 
         enqueue_event_notifications(session, event_id, matching_subscriber_ids(session, obs, now), now=now)
     return result
 
-def calculate_schedules(session: Session, facility_id: int, play_dates: list, policies: list[ReservationPolicy]) -> int:
+def calculate_schedules(session: Session, facility_id: int, play_dates: list, policies: list[ReservationPolicy],
+                        *, opens_after: datetime | None = None, opens_before: datetime | None = None) -> int:
     """Insert/update schedules for known policy; unverified policies stay unverified."""
     from .policy_rules import opening_window
     count = 0
@@ -178,6 +179,10 @@ def calculate_schedules(session: Session, facility_id: int, play_dates: list, po
                 continue
             seen.add(window.first_date)
             opened = window.opens_at.astimezone(timezone.utc)
+            if opens_after is not None and opened < as_utc(opens_after):
+                continue
+            if opens_before is not None and opened > as_utc(opens_before):
+                continue
             insert = pg_insert if session.bind.dialect.name == "postgresql" else sqlite_insert
             stmt = insert(ReservationSchedule).values(
                 facility_id=facility_id, policy_id=policy.id, play_date=window.first_date,
@@ -187,6 +192,10 @@ def calculate_schedules(session: Session, facility_id: int, play_dates: list, po
                 index_elements=["facility_id", "play_date", "audience"],
                 set_={"policy_id": policy.id, "opens_at": opened, "verified": policy.verified,
                       "play_date_end": window.last_date},
+                where=or_(ReservationSchedule.policy_id != policy.id,
+                    ReservationSchedule.opens_at != opened,
+                    ReservationSchedule.verified != policy.verified,
+                    ReservationSchedule.play_date_end != window.last_date),
             )
             session.execute(stmt)
             count += 1

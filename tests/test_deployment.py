@@ -253,3 +253,26 @@ def test_gemini_metadata_failure_returns_only_safe_codes(status, details, code):
         result = check_gemini_models({'LLM_API_KEY': 'private-key'}, client=client)
     assert result['code'] == code
     assert 'private' not in json.dumps(result)
+
+
+def test_worker_status_distinguishes_scheduled_retry_from_due_work():
+    from tenniswatch.deployment import worker_status
+    def respond(request):
+        if request.url.path.endswith('/telegram_updates'):
+            return httpx.Response(200, json=[
+                {'status': 'pending', 'attempts': 4, 'next_attempt_at': '2099-01-01T00:00:00Z'},
+                {'status': 'pending', 'attempts': 1, 'next_attempt_at': '2000-01-01T00:00:00Z'},
+                {'status': 'processing', 'attempts': 2, 'lease_until': '2099-01-01T00:00:00Z'},
+                {'status': 'pending', 'next_attempt_at': 'private-invalid-value'}])
+        if request.url.path.endswith('/getWebhookInfo'):
+            return httpx.Response(200, json={'ok': True, 'result': {}})
+        return httpx.Response(200, json=[])
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        result = worker_status({'SUPABASE_URL': 'https://db.example.test',
+            'SUPABASE_SERVICE_ROLE_KEY': 'key', 'TELEGRAM_BOT_TOKEN': 'token'}, client=client)
+    waiting = result['telegram_updates']['waiting']
+    assert waiting[0]['due'] is False and waiting[0]['seconds_until_due'] > 0
+    assert waiting[1]['due'] is True and waiting[1]['seconds_until_due'] == 0
+    assert waiting[2]['due'] is False and 'lease_until' in waiting[2]
+    assert waiting[3]['timing_available'] is False
+    assert 'private-invalid-value' not in json.dumps(result)

@@ -24,3 +24,17 @@ describe('safe model failures', () => {
     await expect(client.complete([], [])).rejects.toEqual(new LlmRequestError('LLM_NETWORK_FAILED'));
   });
 });
+
+
+it('distinguishes deadline expiry without exposing exception details', async () => {
+  const client = new OpenAICompatibleClient({ apiKey: 'private-key', model: 'test',
+    fetcher: vi.fn().mockRejectedValue(new DOMException('private-details', 'TimeoutError')) });
+  await expect(client.complete([], [])).rejects.toEqual(new LlmRequestError('LLM_TIMEOUT'));
+});
+
+it('classifies a response-body deadline as a timeout', async () => {
+  const client = new OpenAICompatibleClient({ apiKey: 'private-key', model: 'test',
+    fetcher: vi.fn().mockResolvedValue({ ok: true,
+      json: vi.fn().mockRejectedValue(new DOMException('private-details', 'TimeoutError')) }) });
+  await expect(client.complete([], [])).rejects.toEqual(new LlmRequestError('LLM_TIMEOUT'));
+});

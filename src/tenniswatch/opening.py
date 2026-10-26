@@ -15,7 +15,7 @@ from .watches import eligible_watches
 from .policy_rules import rule_fields, rule_is_valid
 
 OPENED_GRACE = timedelta(hours=3)
-DEFAULT_REMINDERS = ("day_before", "hour_before", "opened")
+DEFAULT_REMINDERS = ("day_before", "hour_before")
 
 
 def policy_snapshot(policy: ReservationPolicy) -> str:
@@ -153,16 +153,17 @@ def check_opening_schedules(factory, *, now: datetime | None = None, activate_wa
                     session.execute(update(ReservationSchedule).where(ReservationSchedule.policy_id == policy.id)
                                     .values(verified=False))
                     continue
-                horizon = min(366, max(31, policy.open_days_before + 2))
-                dates = [today + timedelta(days=offset) for offset in range(horizon + 1)]
-                dates = [day for day in dates if any(isinstance(watch.criteria, dict)
+                from .policy_rules import play_dates_for_opening_horizon
+                schedule_dates = play_dates_for_opening_horizon(today, policy)
+                watch_dates = [day for day in schedule_dates if any(isinstance(watch.criteria, dict)
                     and criteria_includes_date(watch.criteria, day)
                     and watch.criteria.get("audience", "all") in ("all", policy.audience) for watch in watches)]
-                result["schedules"] += calculate_schedules(session, facility.id, dates, [policy])
-                if activate_watches and policy_can_notify(policy, now) and dates:
+                result["schedules"] += calculate_schedules(session, facility.id, schedule_dates, [policy],
+                    opens_after=now, opens_before=now + timedelta(days=366))
+                if activate_watches and policy_can_notify(policy, now) and watch_dates:
                     for watch in watches:
                         if watch.monitoring_status == "PENDING_ACTIVATION" and any(
-                            criteria_includes_date(watch.criteria, day) for day in dates
+                            criteria_includes_date(watch.criteria, day) for day in watch_dates
                         ) and watch.criteria.get("audience", "all") in ("all", policy.audience):
                             watch.monitoring_status = "ACTIVE"
                             watch.updated_at = now

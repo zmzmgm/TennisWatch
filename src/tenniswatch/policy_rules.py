@@ -39,3 +39,9 @@ def opening_window(policy, play_date: date) -> OpeningWindow:
     first = open_date + timedelta(days=policy.window_start_days)
     return OpeningWindow(datetime.combine(open_date, policy.open_time.replace(tzinfo=None),
         ZoneInfo(policy.timezone_name)), first, first + timedelta(days=6))
+
+
+def play_dates_for_opening_horizon(today: date, policy, days: int = 366) -> list[date]:
+    """Generate play dates far enough ahead to cover the next year of actual opening instants."""
+    extension = policy.open_days_before if (policy.rule_type or "rolling_days") == "rolling_days" else 0
+    return [today + timedelta(days=offset) for offset in range(days + extension + 1)]
