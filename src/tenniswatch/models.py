@@ -48,12 +48,24 @@ class ReservationPolicy(Base):
     facility_id: Mapped[int] = mapped_column(ForeignKey("facilities.id"))
     audience: Mapped[str] = mapped_column(String(30))  # resident/general
     open_days_before: Mapped[int] = mapped_column(Integer)
+    rule_type: Mapped[str] = mapped_column(String(24), default="rolling_days", server_default="rolling_days")
+    open_weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    window_start_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     open_time: Mapped[time] = mapped_column(Time(timezone=True))
     timezone_name: Mapped[str] = mapped_column(String(64), default="Asia/Seoul")
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     source_url: Mapped[str] = mapped_column(Text)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_checked_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_check_error: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    __table_args__ = (CheckConstraint(
+        "(rule_type = 'rolling_days' AND open_days_before BETWEEN 0 AND 365) OR "
+        "(rule_type = 'weekly_batch' AND open_days_before = 0 AND open_weekday IS NOT NULL "
+        "AND open_weekday BETWEEN 1 AND 7 AND window_start_days IS NOT NULL "
+        "AND window_start_days BETWEEN 1 AND 7 AND window_days IS NOT NULL AND window_days = 7)", name="ck_policy_rule"),)
 
 
 class PolicyChange(Base):
@@ -71,10 +83,21 @@ class ReservationSchedule(Base):
     facility_id: Mapped[int] = mapped_column(ForeignKey("facilities.id"))
     policy_id: Mapped[int] = mapped_column(ForeignKey("reservation_policies.id"))
     play_date: Mapped[date] = mapped_column(Date)
+    play_date_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     audience: Mapped[str] = mapped_column(String(30))
     opens_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     __table_args__ = (UniqueConstraint("facility_id", "play_date", "audience"),)
+
+
+class PolicyCheckRun(Base):
+    __tablename__ = "policy_check_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    facility_id: Mapped[int] = mapped_column(ForeignKey("facilities.id"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24))
+    error_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
 
 class TelegramUser(Base):

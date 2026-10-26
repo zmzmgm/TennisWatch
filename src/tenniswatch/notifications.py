@@ -65,11 +65,15 @@ def slot_message(*, facility: str, play_date: str, time_range: str, court: str,
 
 
 def opening_message(*, facility: str, play_date: str, audience: str, opens_at: datetime,
-                    kind: str, booking_url: str, source_url: str, timezone_name: str) -> str:
+                    kind: str, booking_url: str, source_url: str, timezone_name: str,
+                    play_date_end: str | None = None) -> str:
     local = opens_at.astimezone(ZoneInfo(timezone_name))
-    label = "예약 오픈 1시간 전 안내" if kind == "opening_hour_before" else "예약 오픈 사전 안내"
+    label = {"opening_day_before": "예약 오픈 전날 안내", "opening_hour_before": "예약 오픈 1시간 전 안내",
+             "opening_opened": "예약 오픈 예정 시각이 지났어요"}[kind]
     group = "지역주민 우선 예약" if audience == "resident" else "일반 예약"
-    return (f"🎾 {label}\n\n테니스장: {facility}\n이용 날짜: {play_date}\n대상: {group}\n"
+    period = play_date if not play_date_end or play_date_end == play_date else f"{play_date} ~ {play_date_end}"
+    return (f"🎾 {label}\n\n테니스장: {facility}\n예약 대상 이용기간: {period}\n대상: {group}\n"
             f"예약 오픈: {local:%Y-%m-%d %H:%M} ({timezone_name})\n"
             f"예약 페이지: {booking_url}\n정책 출처: {source_url}\n"
-            "정기 실행 지연으로 안내가 늦을 수 있으며, 실제 예약 조건은 사이트에서 확인해 주세요.")
+            "정책에 따른 일정 안내이며 실제 예약 가능 여부를 보장하지 않습니다.\n"
+            "정기 실행 지연으로 안내가 늦을 수 있으며, 회원 자격·휴무·전용 코트 등 실제 예약 조건은 사이트에서 확인해 주세요.")

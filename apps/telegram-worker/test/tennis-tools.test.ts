@@ -117,7 +117,9 @@ describe("Supabase tennis tools", () => {
         { facility_id: 4, policy_id: 8, play_date: "2026-10-24", audience: "resident", opens_at: "2026-10-20T09:00:00+09:00", verified: true },
       ]);
       if (url.pathname.endsWith("/reservation_policies")) return responseJson([
-        { id: 8, ...rule, open_days_before: changed ? 5 : 4, verified: true, last_checked_value: JSON.stringify(rule) },
+        { id: 8, ...rule, rule_type: "rolling_days", open_weekday: null, window_start_days: null,
+          window_days: null, source_digest: null, source_checked_at: null, source_check_error: null,
+          open_days_before: changed ? 5 : 4, verified: true, last_checked_value: JSON.stringify(rule) },
       ]);
       throw new Error(`Unexpected request path ${url.pathname}`);
     }));

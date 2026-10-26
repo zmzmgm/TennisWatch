@@ -251,7 +251,41 @@ def test_verified_opening_reminders_have_disjoint_delay_windows_and_are_idempote
     hour_before = OPENS - timedelta(minutes=30)
     assert check_opening_schedules(db, now=hour_before, activate_watches=True)["notifications"] == 1
     assert dispatch_due_notifications(db, sender, now=hour_before) == (1, 0)
-    assert check_opening_schedules(db, now=OPENS + timedelta(seconds=1), activate_watches=True)["notifications"] == 0
+    opened = OPENS + timedelta(seconds=1)
+    assert check_opening_schedules(db, now=opened, activate_watches=True)["notifications"] == 1
+    assert check_opening_schedules(db, now=opened, activate_watches=True)["notifications"] == 0
+    assert dispatch_due_notifications(db, sender, now=opened) == (1, 0)
+    assert "예약 오픈 예정 시각이 지났어요" in sender.calls[-1][0]
+
+
+def test_weekly_policy_remains_verified_after_reload_and_activates_watch(db):
+    checked = datetime(2026, 10, 26, tzinfo=timezone.utc)
+    add_watch(db, kind="opening", status="PENDING_ACTIVATION", criteria={"play_date": "2026-10-28"})
+    with db.begin() as session:
+        policy = ReservationPolicy(facility_id=1, audience="general", open_days_before=0,
+            open_time=time(14), timezone_name="Asia/Seoul", verified=False,
+            rule_type="weekly_batch", open_weekday=2, window_start_days=1, window_days=7,
+            source_url="https://example.test/policy", source_digest="a" * 64, source_checked_at=checked)
+        session.add(policy)
+        session.flush()
+        track_policy_change(session, policy, verify=True, now=checked)
+    result = check_opening_schedules(db, now=checked, activate_watches=True)
+    assert result["policy_changes"] == 0
+    assert result["activated"] == 1
+    with db() as session:
+        assert session.scalar(select(ReservationPolicy)).verified
+        assert session.scalar(select(UserWatch)).monitoring_status == "ACTIVE"
+
+
+def test_policy_status_diagnostic_exposes_only_rule_values():
+    import json
+    from tenniswatch.opening_status import policy_change_diagnostic
+    diagnostic = policy_change_diagnostic(PolicyChange(policy_id=1,
+        old_value=json.dumps({"open_time": "14:00:00", "source_url": "private-before"}),
+        new_value=json.dumps({"open_time": "15:00:00", "source_url": "private-after"})))
+    assert diagnostic["changed_fields"] == ["open_time", "source_url"]
+    assert diagnostic["rule_changes"] == {"open_time": {"before": "14:00:00", "after": "15:00:00"}}
+    assert "private" not in json.dumps(diagnostic)
 
 
 def test_first_late_run_sends_only_hour_reminder_and_respects_audience(db):

@@ -168,19 +168,25 @@ def process_observation(session: Session, obs: SlotObservation, *, now=None) -> 
 
 def calculate_schedules(session: Session, facility_id: int, play_dates: list, policies: list[ReservationPolicy]) -> int:
     """Insert/update schedules for known policy; unverified policies stay unverified."""
-    from .domain import next_reservation_open
+    from .policy_rules import opening_window
     count = 0
     for policy in policies:
+        seen = set()
         for play_date in play_dates:
-            opened = next_reservation_open(play_date, policy.open_days_before, policy.open_time,
-                                           timezone_name=policy.timezone_name).astimezone(timezone.utc)
+            window = opening_window(policy, play_date)
+            if window.first_date in seen:
+                continue
+            seen.add(window.first_date)
+            opened = window.opens_at.astimezone(timezone.utc)
             insert = pg_insert if session.bind.dialect.name == "postgresql" else sqlite_insert
             stmt = insert(ReservationSchedule).values(
-                facility_id=facility_id, policy_id=policy.id, play_date=play_date,
+                facility_id=facility_id, policy_id=policy.id, play_date=window.first_date,
+                play_date_end=window.last_date,
                 audience=policy.audience, opens_at=opened, verified=policy.verified,
             ).on_conflict_do_update(
                 index_elements=["facility_id", "play_date", "audience"],
-                set_={"policy_id": policy.id, "opens_at": opened, "verified": policy.verified},
+                set_={"policy_id": policy.id, "opens_at": opened, "verified": policy.verified,
+                      "play_date_end": window.last_date},
             )
             session.execute(stmt)
             count += 1

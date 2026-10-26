@@ -8,7 +8,8 @@ from .domain import SlotObservation, as_utc, next_reservation_open
 from .models import (AvailabilityEvent, AvailabilitySlot, CollectionRun, DailyReportSetting, Facility, Notification,
                      ReservationPolicy, ReservationSchedule, ReservationSite, TelegramUser)
 from .notifications import NotificationDeliveryError, opening_message, slot_message
-from .opening import policy_is_valid, policy_snapshot, reminder_kind, watch_matches_schedule
+from .opening import policy_can_notify, policy_snapshot_matches, reminder_kind, watch_matches_schedule, watch_wants_reminder
+from .policy_rules import opening_window
 from .services import claim_due_notifications, matching_subscriber_ids, record_delivery_failure
 from .watches import eligible_watches
 
@@ -87,24 +88,26 @@ def prepare_payload(session, row, now):
             booking_url=slot.booking_url, observed_at=as_utc(slot.observed_at)), user.chat_id
 
     policy = session.get(ReservationPolicy, schedule.policy_id)
-    if (not schedule.verified or policy is None or not policy.verified or not policy_is_valid(policy)
-        or policy.last_checked_value != policy_snapshot(policy) or row.schedule_opens_at is None
+    if (not schedule.verified or policy is None or not policy_can_notify(policy, now)
+        or not policy_snapshot_matches(policy) or row.schedule_opens_at is None
         or as_utc(row.schedule_opens_at) != as_utc(schedule.opens_at)):
         release(row, "SKIPPED", "POLICY_OR_SCHEDULE_CHANGED")
         return None
-    expected = next_reservation_open(schedule.play_date, policy.open_days_before, policy.open_time,
-                                    timezone_name=policy.timezone_name)
-    if as_utc(expected) != as_utc(schedule.opens_at):
+    expected = opening_window(policy, schedule.play_date)
+    if (as_utc(expected.opens_at) != as_utc(schedule.opens_at) or expected.first_date != schedule.play_date
+            or expected.last_date != (schedule.play_date_end or schedule.play_date)):
         release(row, "SKIPPED", "POLICY_OR_SCHEDULE_CHANGED")
         return None
     if reminder_kind(schedule.opens_at, now) != row.kind:
         release(row, "SKIPPED", "REMINDER_WINDOW_EXPIRED")
         return None
     if not any(watch.user_id == user.id and watch_matches_schedule(watch, schedule)
+               and watch_wants_reminder(watch, row.kind)
                for watch in eligible_watches(session, facility.id, "opening", now)):
         release(row, "SKIPPED", "SUBSCRIPTION_NO_LONGER_MATCHES")
         return None
     return opening_message(facility=facility.name, play_date=schedule.play_date.isoformat(),
+        play_date_end=(schedule.play_date_end or schedule.play_date).isoformat(),
         audience=schedule.audience, opens_at=as_utc(schedule.opens_at), kind=row.kind,
         booking_url=facility.booking_url, source_url=policy.source_url, timezone_name=policy.timezone_name), user.chat_id
 

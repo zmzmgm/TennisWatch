@@ -47,13 +47,14 @@ const clock = { type: "string", description: "24-hour local time HH:MM" };
 const integerId = { type: "integer", minimum: 1 };
 const audience = { type: "string", enum: ["resident", "general", "all"] };
 const weekday = { type: "integer", minimum: 1, maximum: 7 };
+const reminders = { type: "array", items: { type: "string", enum: ["day_before", "hour_before", "opened"] }, minItems: 1, maxItems: 3, uniqueItems: true };
 
 export const toolDefinitions: ToolDefinition[] = [
   { type: "function", function: { name: "search_facilities", description: "Search supported tennis facilities by district or name.", parameters: objectSchema({ region: text, query: text }), strict: false } },
   { type: "function", function: { name: "search_availability", description: "Search the stored availability observations for a local date and time range. Include observation freshness.", parameters: objectSchema({ region: text, facility: text, date, after_time: clock, before_time: clock }, ["date"]), strict: false } },
   { type: "function", function: { name: "get_opening_schedule", description: "Look up resident and general opening times from verified reservation policies.", parameters: objectSchema({ facility: text, date }, ["facility", "date"]), strict: false } },
-  { type: "function", function: { name: "create_subscription", description: "Create an availability or opening reminder watch for the authenticated Telegram user.", parameters: objectSchema({ facility: text, region: text, play_date: date, weekdays: { type: "array", items: weekday, minItems: 1, maxItems: 7 }, start_time: clock, end_time: clock, watch_type: { type: "string", enum: ["availability", "opening"] }, audience }, ["watch_type"]), strict: false } },
-  { type: "function", function: { name: "update_subscription", description: "Change an existing watch belonging to the authenticated Telegram user.", parameters: objectSchema({ subscription_id: integerId, patch: objectSchema({ facility: text, region: text, play_date: date, weekdays: { type: "array", items: weekday, minItems: 1, maxItems: 7 }, start_time: clock, end_time: clock, watch_type: { type: "string", enum: ["availability", "opening"] }, audience, enabled: { type: "boolean"} }) }, ["subscription_id", "patch"]), strict: false } },
+  { type: "function", function: { name: "create_subscription", description: "Create an availability or opening reminder watch. For opening watches, reminders defaults to day_before, hour_before, and opened unless the user asks otherwise.", parameters: objectSchema({ facility: text, region: text, play_date: date, weekdays: { type: "array", items: weekday, minItems: 1, maxItems: 7 }, start_time: clock, end_time: clock, watch_type: { type: "string", enum: ["availability", "opening"] }, audience, reminders }, ["watch_type"]), strict: false } },
+  { type: "function", function: { name: "update_subscription", description: "Change an existing watch belonging to the authenticated Telegram user.", parameters: objectSchema({ subscription_id: integerId, patch: objectSchema({ facility: text, region: text, play_date: date, weekdays: { type: "array", items: weekday, minItems: 1, maxItems: 7 }, start_time: clock, end_time: clock, watch_type: { type: "string", enum: ["availability", "opening"] }, audience, reminders, enabled: { type: "boolean"} }) }, ["subscription_id", "patch"]), strict: false } },
   { type: "function", function: { name: "delete_subscription", description: "Disable a watch belonging to the authenticated Telegram user.", parameters: objectSchema({ subscription_id: integerId }, ["subscription_id"]), strict: false } },
   { type: "function", function: { name: "list_subscriptions", description: "List active watches belonging to the authenticated Telegram user.", parameters: objectSchema({}), strict: false } },
   { type: "function", function: { name: "set_daily_report", description: "Save a requested daily availability snapshot time for the authenticated user, using existing availability watches. Ask for the time if missing. This saves settings, not deployment. Korea time; execution may be delayed.", parameters: objectSchema({ local_time: clock }, ["local_time"]), strict: false } },
@@ -98,9 +99,10 @@ function basicValidate(name: string, value: unknown): Record<string, unknown> | 
     case "get_opening_schedule":
       return onlyKeys(value, ["facility", "date"]) && validText(value.facility) && validDate(value.date) ? value : null;
     case "create_subscription": {
-      const fields = ["facility", "region", "play_date", "weekdays", "start_time", "end_time", "watch_type", "audience"];
+      const fields = ["facility", "region", "play_date", "weekdays", "start_time", "end_time", "watch_type", "audience", "reminders"];
       if (!onlyKeys(value, fields) || !["availability", "opening"].includes(String(value.watch_type))) return null;
       if (value.audience !== undefined && !["resident", "general", "all"].includes(String(value.audience))) return null;
+      if (value.reminders !== undefined && !validReminders(value.reminders)) return null;
       if (value.facility !== undefined && !validText(value.facility)) return null;
       if (value.region !== undefined && !validText(value.region)) return null;
       if (value.play_date !== undefined && !validDate(value.play_date)) return null;
@@ -114,7 +116,7 @@ function basicValidate(name: string, value: unknown): Record<string, unknown> | 
     case "update_subscription": {
       if (!onlyKeys(value, ["subscription_id", "patch"]) || !Number.isSafeInteger(value.subscription_id) || Number(value.subscription_id) < 1 || !isPlainObject(value.patch)) return null;
       const patch = value.patch;
-      if (!onlyKeys(patch, ["facility", "region", "play_date", "weekdays", "start_time", "end_time", "watch_type", "enabled", "audience"]) || Object.keys(patch).length === 0) return null;
+      if (!onlyKeys(patch, ["facility", "region", "play_date", "weekdays", "start_time", "end_time", "watch_type", "enabled", "audience", "reminders"]) || Object.keys(patch).length === 0) return null;
       if (patch.facility !== undefined && !validText(patch.facility)) return null;
       if (patch.region !== undefined && !validText(patch.region)) return null;
       if (patch.play_date !== undefined && !validDate(patch.play_date)) return null;
@@ -123,6 +125,7 @@ function basicValidate(name: string, value: unknown): Record<string, unknown> | 
       if (patch.end_time !== undefined && !validTime(patch.end_time)) return null;
       if (patch.watch_type !== undefined && !["availability", "opening"].includes(String(patch.watch_type))) return null;
       if (patch.audience !== undefined && !["resident", "general", "all"].includes(String(patch.audience))) return null;
+      if (patch.reminders !== undefined && !validReminders(patch.reminders)) return null;
       if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") return null;
       if (patch.play_date !== undefined && patch.weekdays !== undefined) return null;
       return value;
@@ -138,6 +141,12 @@ function basicValidate(name: string, value: unknown): Record<string, unknown> | 
     default:
       return null;
   }
+}
+
+function validReminders(value: unknown): value is string[] {
+  const allowed = new Set(["day_before", "hour_before", "opened"]);
+  return Array.isArray(value) && value.length >= 1 && value.length <= 3 &&
+    value.every((item) => typeof item === "string" && allowed.has(item)) && new Set(value).size === value.length;
 }
 
 export type ToolHandler = (context: ToolContext, input: Record<string, unknown>) => Promise<ToolResult>;

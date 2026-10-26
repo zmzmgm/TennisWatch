@@ -16,6 +16,7 @@ from .database import advisory_job_lock, make_session_factory
 from .models import Court, Facility, ReservationPolicy, ReservationSite, Subscription
 from .collection import build_collection_plan, collect_targets
 from .opening import check_opening_schedules, track_policy_change
+from .policy_sync import refresh_policies
 from .collectors.registry import default_registry
 from .collectors.base import CollectionError, safe_failure_details
 from .notifications import TelegramConfig, TelegramSender
@@ -90,7 +91,7 @@ def _watch(factory, days_ahead: int, poll_interval_minutes=None) -> tuple[int, i
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(prog="tenniswatch")
-    parser.add_argument("command", choices=["init-gyeyang", "probe-gyeyang", "init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
+    parser.add_argument("command", choices=["init-gyeyang-opening", "opening-status", "init-gyeyang", "probe-gyeyang", "init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
     parser.add_argument("--date", help="확인/구독할 날짜 (YYYY-MM-DD)")
     parser.add_argument("--report-time", help="매일 결과를 받을 한국 시각 HH:MM")
     parser.add_argument("--start-time", help="감시 시작 시각 HH:MM")
@@ -199,6 +200,10 @@ def main() -> None:
     if not os.getenv("DATABASE_URL"):
         parser.error("DATABASE_URL is required")
     factory = make_session_factory()
+    if args.command == "opening-status":
+        from .opening_status import opening_status
+        print(json.dumps(opening_status(factory, os.getenv("TELEGRAM_CHAT_ID")), ensure_ascii=False))
+        return
     if args.command == "init-gangseo":
         seed_gangseo(factory)
         return
@@ -305,10 +310,39 @@ def main() -> None:
                 print("정책 검증 상태를 저장했습니다.")
                 return
             if args.command == "check-policies":
+                refreshed = refresh_policies(factory)
                 result = check_opening_schedules(factory, activate_watches=True)
                 sent, failed = _deliver(factory)
-                print(json.dumps({**result, "sent": sent, "failed": failed}))
-                if failed:
+                print(json.dumps({**refreshed, **result, "sent": sent, "failed": failed}))
+                if failed or refreshed["policy_errors"] or refreshed["review_required"]:
+                    raise SystemExit(1)
+                return
+            if args.command == "init-gyeyang-opening":
+                from datetime import datetime, timedelta, timezone
+                from zoneinfo import ZoneInfo
+                from .services import calculate_schedules
+                from .opening import policy_can_notify
+                now = datetime.now(timezone.utc)
+                with factory() as session:
+                    facility = session.scalar(select(Facility).join(ReservationSite).where(
+                        ReservationSite.key == "gyeyang_incheon", Facility.external_id == GYEYANG_KEY,
+                        Facility.enabled.is_(True), ReservationSite.enabled.is_(True)))
+                    if facility is None:
+                        parser.error("먼저 init-gyeyang으로 계양테니스장을 등록하세요.")
+                    facility_id = facility.id
+                refreshed = refresh_policies(factory, now=now, facility_id=facility_id, force=True)
+                ready = False
+                with factory.begin() as session:
+                    policies = list(session.scalars(select(ReservationPolicy).where(ReservationPolicy.facility_id == facility_id)))
+                    usable = [policy for policy in policies if policy_can_notify(policy, now)]
+                    if len(usable) == 1:
+                        today = now.astimezone(ZoneInfo("Asia/Seoul")).date()
+                        calculate_schedules(session, facility_id, [today + timedelta(days=i) for i in range(32)], usable)
+                        ready = True
+                    policy_ids = [policy.id for policy in policies]
+                print(json.dumps({**refreshed, "policy_ready": ready, "policy_ids": policy_ids,
+                                  "subscription_created": False, "sent": 0}, ensure_ascii=False))
+                if not ready:
                     raise SystemExit(1)
                 return
             if args.command == "collect-slots":

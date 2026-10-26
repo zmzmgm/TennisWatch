@@ -242,13 +242,15 @@ export class SupabaseTennisTools implements ConversationStore {
       facility_id: number;
       policy_id: number;
       play_date: string;
+      play_date_end: string | null;
       audience: string;
       opens_at: string;
       verified: boolean;
     }>("reservation_schedules", {
-      select: "facility_id,policy_id,play_date,audience,opens_at,verified",
+      select: "facility_id,policy_id,play_date,play_date_end,audience,opens_at,verified",
       facility_id: `in.(${supported.map((f) => f.id).join(",")})`,
-      play_date: `eq.${String(input.date)}`,
+      play_date: `lte.${String(input.date)}`,
+      play_date_end: `gte.${String(input.date)}`,
       verified: "eq.true",
       order: "opens_at.asc",
     });
@@ -256,8 +258,10 @@ export class SupabaseTennisTools implements ConversationStore {
     const policies = await this.rows<{
       id: number; verified: boolean; source_url: string; audience: string; open_days_before: number;
       open_time: string; timezone_name: string; last_checked_value: string | null;
+      rule_type: string; open_weekday: number | null; window_start_days: number | null; window_days: number | null;
+      source_digest: string | null; source_checked_at: string | null; source_check_error: string | null;
     }>("reservation_policies", {
-      select: "id,verified,source_url,audience,open_days_before,open_time,timezone_name,last_checked_value",
+      select: "id,verified,source_url,audience,open_days_before,open_time,timezone_name,last_checked_value,rule_type,open_weekday,window_start_days,window_days,source_digest,source_checked_at,source_check_error",
       id: `in.(${[...new Set(schedules.map((schedule) => schedule.policy_id))].join(",")})`,
       verified: "eq.true",
     });
@@ -270,9 +274,17 @@ export class SupabaseTennisTools implements ConversationStore {
       try {
         if (!policy.last_checked_value) return [];
         const snapshot = JSON.parse(policy.last_checked_value) as Record<string, unknown>;
+        const sourceCheckedMs = policy.source_checked_at ? Date.parse(policy.source_checked_at) : NaN;
+        if (policy.source_check_error || (policy.source_digest && (!Number.isFinite(sourceCheckedMs) ||
+          Date.now() - sourceCheckedMs > 36 * 60 * 60 * 1000 || sourceCheckedMs > Date.now() + 60_000))) return [];
         if (snapshot.audience !== policy.audience || snapshot.open_days_before !== policy.open_days_before ||
           String(snapshot.open_time).slice(0, 8) !== policy.open_time.slice(0, 8) ||
-          snapshot.timezone_name !== policy.timezone_name || snapshot.source_url !== policy.source_url) return [];
+          snapshot.timezone_name !== policy.timezone_name || snapshot.source_url !== policy.source_url ||
+          (snapshot.rule_type ?? "rolling_days") !== policy.rule_type ||
+          (snapshot.open_weekday ?? null) !== policy.open_weekday ||
+          (snapshot.window_start_days ?? null) !== policy.window_start_days ||
+          (snapshot.window_days ?? null) !== policy.window_days ||
+          (snapshot.source_digest ?? null) !== policy.source_digest) return [];
       } catch {
         return [];
       }
@@ -281,6 +293,7 @@ export class SupabaseTennisTools implements ConversationStore {
         facility_name: facility.name,
         region: facility.region,
         play_date: schedule.play_date,
+        play_date_end: schedule.play_date_end ?? schedule.play_date,
         audience: schedule.audience,
         opens_at: schedule.opens_at,
         verified: true,
@@ -358,13 +371,17 @@ export class SupabaseTennisTools implements ConversationStore {
         }
       }
 
+      const args = { ...input };
+      if (action === "create_subscription" && (args as Record<string, unknown>).watch_type === "opening" && !(args as Record<string, unknown>).reminders) {
+        (args as Record<string, unknown>).reminders = ["day_before", "hour_before", "opened"];
+      }
       const result = await this.rpc<ToolResult>("apply_user_watch_mutation", {
         p_update_id: context.updateId,
         p_tool_call_id: context.toolCallId,
         p_telegram_user_id: context.telegramUserId,
         p_chat_id: String(context.chatId),
         p_action: action,
-        p_args: input,
+        p_args: args,
         p_facility_ids: facilityIds,
       });
       if (!result.ok) return result;

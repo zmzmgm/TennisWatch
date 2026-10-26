@@ -12,19 +12,50 @@ from .domain import as_utc, criteria_includes_date
 from .models import Facility, Notification, PolicyChange, ReservationPolicy, ReservationSchedule
 from .services import calculate_schedules
 from .watches import eligible_watches
+from .policy_rules import rule_fields, rule_is_valid
+
+OPENED_GRACE = timedelta(hours=3)
+DEFAULT_REMINDERS = ("day_before", "hour_before", "opened")
 
 
 def policy_snapshot(policy: ReservationPolicy) -> str:
     return json.dumps({"audience": policy.audience, "open_days_before": policy.open_days_before,
-        "open_time": policy.open_time.isoformat(), "timezone_name": policy.timezone_name,
-        "source_url": policy.source_url}, sort_keys=True, ensure_ascii=False)
+        "open_time": policy.open_time.replace(tzinfo=None).isoformat(), "timezone_name": policy.timezone_name,
+        "source_url": policy.source_url, **rule_fields(policy)}, sort_keys=True, ensure_ascii=False)
+
+
+def policy_snapshot_matches(policy, saved=None):
+    try:
+        previous = json.loads(saved if saved is not None else policy.last_checked_value)
+        if isinstance(previous.get("open_time"), str):
+            previous["open_time"] = previous["open_time"][:8]
+        # 0009 이전의 일 단위 스냅샷만 호환한다. 새 주간 필드를 생략하면 일치하지 않는다.
+        for key, default in {"rule_type": "rolling_days", "open_weekday": None,
+                             "window_start_days": None, "window_days": None, "source_digest": None}.items():
+            previous.setdefault(key, default)
+        return previous == json.loads(policy_snapshot(policy))
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def policy_source_current(policy, now):
+    if policy.source_check_error:
+        return False
+    if not policy.source_digest:
+        return True  # 기존 수동 검증 정책은 기존 검증 상태를 사용한다.
+    return bool(policy.source_checked_at and not policy.source_check_error
+                and timedelta(minutes=-1) <= as_utc(now) - as_utc(policy.source_checked_at) <= timedelta(hours=36))
+
+
+def policy_can_notify(policy, now):
+    return bool(policy.verified and policy_is_valid(policy) and policy_source_current(policy, now))
 
 
 def policy_is_valid(policy: ReservationPolicy) -> bool:
     try:
         ZoneInfo(policy.timezone_name)
         source = urlsplit(policy.source_url)
-        return (policy.audience in ("resident", "general") and 0 <= policy.open_days_before <= 365
+        return (policy.audience in ("resident", "general") and rule_is_valid(policy)
                 and source.scheme == "https" and bool(source.hostname) and not source.username and not source.password)
     except (ValueError, TypeError, ZoneInfoNotFoundError):
         return False
@@ -32,7 +63,7 @@ def policy_is_valid(policy: ReservationPolicy) -> bool:
 
 def track_policy_change(session, policy: ReservationPolicy, *, verify: bool = False, now=None) -> bool:
     current = policy_snapshot(policy)
-    changed = policy.last_checked_value is not None and policy.last_checked_value != current
+    changed = policy.last_checked_value is not None and not policy_snapshot_matches(policy)
     if changed:
         session.add(PolicyChange(policy_id=policy.id, old_value=policy.last_checked_value, new_value=current))
         policy.verified = False
@@ -42,6 +73,8 @@ def track_policy_change(session, policy: ReservationPolicy, *, verify: bool = Fa
         if verify:
             raise ValueError("검증 가능한 정책 규칙과 HTTPS 출처가 필요합니다.")
     elif verify:
+        if not policy_source_current(policy, now or datetime.now(timezone.utc)):
+            raise ValueError("최신 공식 정책 확인에 실패했습니다. 출처 점검 후 검증하세요.")
         policy.verified = True
         policy.observed_at = now or datetime.now(timezone.utc)
     if changed or verify or not policy.verified:
@@ -52,8 +85,16 @@ def track_policy_change(session, policy: ReservationPolicy, *, verify: bool = Fa
 
 def watch_matches_schedule(watch, schedule) -> bool:
     criteria = watch.criteria
-    return (isinstance(criteria, dict) and criteria_includes_date(criteria, schedule.play_date)
+    last = schedule.play_date_end or schedule.play_date
+    days = (last - schedule.play_date).days
+    return (0 <= days <= 6 and isinstance(criteria, dict)
+            and any(criteria_includes_date(criteria, schedule.play_date + timedelta(days=offset)) for offset in range(days + 1))
             and criteria.get("audience", "all") in ("all", schedule.audience))
+
+
+def watch_wants_reminder(watch, kind):
+    values = watch.criteria.get("reminders", DEFAULT_REMINDERS) if isinstance(watch.criteria, dict) else ()
+    return isinstance(values, (list, tuple)) and kind.removeprefix("opening_") in values
 
 
 def reminder_kind(opens_at: datetime, now: datetime) -> str | None:
@@ -63,6 +104,8 @@ def reminder_kind(opens_at: datetime, now: datetime) -> str | None:
         return "opening_hour_before"
     if opened - timedelta(days=1) <= now < opened - timedelta(hours=1):
         return "opening_day_before"
+    if opened <= now < opened + OPENED_GRACE:
+        return "opening_opened"
     return None
 
 
@@ -75,7 +118,7 @@ def enqueue_opening_notifications(session, schedule, users, kind, now) -> int:
                 index_elements=["schedule_id", "user_id", "kind", "schedule_opens_at"],
                 set_={"status": "PENDING", "attempts": 0, "next_attempt_at": now, "last_error": None},
                 where=Notification.status == "SKIPPED")
-        count += session.execute(statement).rowcount or 0
+        count += len(session.execute(statement.returning(Notification.id)).scalars().all())
     return count
 
 
@@ -106,13 +149,17 @@ def check_opening_schedules(factory, *, now: datetime | None = None, activate_wa
                     continue
                 if not policy_is_valid(policy):
                     continue
+                if not policy_source_current(policy, now):
+                    session.execute(update(ReservationSchedule).where(ReservationSchedule.policy_id == policy.id)
+                                    .values(verified=False))
+                    continue
                 horizon = min(366, max(31, policy.open_days_before + 2))
                 dates = [today + timedelta(days=offset) for offset in range(horizon + 1)]
                 dates = [day for day in dates if any(isinstance(watch.criteria, dict)
                     and criteria_includes_date(watch.criteria, day)
                     and watch.criteria.get("audience", "all") in ("all", policy.audience) for watch in watches)]
                 result["schedules"] += calculate_schedules(session, facility.id, dates, [policy])
-                if activate_watches and policy.verified and dates:
+                if activate_watches and policy_can_notify(policy, now) and dates:
                     for watch in watches:
                         if watch.monitoring_status == "PENDING_ACTIVATION" and any(
                             criteria_includes_date(watch.criteria, day) for day in dates
@@ -121,7 +168,7 @@ def check_opening_schedules(factory, *, now: datetime | None = None, activate_wa
                             watch.updated_at = now
                             result["activated"] += 1
             for watch in watches:
-                if not any(policy.verified and policy_is_valid(policy)
+                if not any(policy_can_notify(policy, now)
                     and watch.criteria.get("audience", "all") in ("all", policy.audience) for policy in policies):
                     if watch.monitoring_status == "ACTIVE":
                         watch.monitoring_status = "PENDING_ACTIVATION"
@@ -129,14 +176,14 @@ def check_opening_schedules(factory, *, now: datetime | None = None, activate_wa
             session.flush()
             schedules = session.scalars(select(ReservationSchedule).where(
                 ReservationSchedule.facility_id == facility.id, ReservationSchedule.verified.is_(True),
-                ReservationSchedule.opens_at > now, ReservationSchedule.opens_at <= now + timedelta(days=1)))
+                ReservationSchedule.opens_at > now - OPENED_GRACE, ReservationSchedule.opens_at <= now + timedelta(days=1)))
             for schedule in schedules:
                 policy = session.get(ReservationPolicy, schedule.policy_id)
-                if policy is None or not policy.verified or policy.last_checked_value != policy_snapshot(policy):
+                if policy is None or not policy_can_notify(policy, now) or not policy_snapshot_matches(policy):
                     continue
                 kind = reminder_kind(schedule.opens_at, now)
                 if kind:
                     users = [watch.user_id for watch in eligible_watches(session, facility.id, "opening", now)
-                             if watch_matches_schedule(watch, schedule)]
+                             if watch_matches_schedule(watch, schedule) and watch_wants_reminder(watch, kind)]
                     result["notifications"] += enqueue_opening_notifications(session, schedule, users, kind, now)
     return result
