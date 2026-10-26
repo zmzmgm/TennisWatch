@@ -20,8 +20,11 @@ PLAY = date(2026, 10, 28)
 
 
 def inventory():
-    return tuple(GangseoCourt(f"{group}:{item['entry_place']}", item["name"], "모의 1코트")
-                 for group, item in FACILITY_CATALOG.items())
+    rows = [GangseoCourt(f"{group}:{item['entry_place']}", item["name"], "모의 1코트")
+            for group, item in FACILITY_CATALOG.items()]
+    rows.extend(GangseoCourt(f"GANGSEO02:T:03:{900 + n}", FACILITY_CATALOG["GANGSEO02:T:03"]["name"],
+                            f"모의 {n}코트") for n in (2, 3, 4))
+    return tuple(rows)
 
 
 @pytest.mark.parametrize("external_id,kind", [("GANGSEO02:T:03:2", "T"),
@@ -60,11 +63,13 @@ def test_discovery_visits_only_three_official_entries_and_validates_each_context
     collector = GangseoCollector()
     page = Mock()
     collector._navigate = Mock(return_value=page)
+    collector._select_discovery_context = Mock()
     page.evaluate.side_effect = [{"selected": {"center": group.split(":")[0], "part": group.split(":")[2]},
-        "options": [{"value": item["entry_place"], "label": "모의 1코트"}]}
+        "options": [{"value": c.external_id.rsplit(":", 1)[1], "label": c.court_name}
+                    for c in inventory() if c.external_id.rsplit(":", 1)[0] == group]}
         for group, item in FACILITY_CATALOG.items()]
     result = collector.discover_courts()
-    assert len(result) == 3
+    assert len(result) == 6
     urls = [call.args[0] for call in collector._navigate.call_args_list]
     assert [parse_qs(urlsplit(url).query)["center"][0] for url in urls] == ["GANGSEO02", "GANGSEO03", "GANGSEO05"]
     assert parse_qs(urlsplit(urls[2]).query)["facilities_type"] == ["C"]
@@ -74,6 +79,7 @@ def test_discovery_rejects_wrong_facility_even_if_court_options_exist():
     collector = GangseoCollector()
     page = Mock()
     collector._navigate = Mock(return_value=page)
+    collector._select_discovery_context = Mock()
     page.evaluate.return_value = {"selected": {"center": "GANGSEO03", "part": "03"},
                                   "options": [{"value": "2", "label": "모의 1코트"}]}
     with pytest.raises(CollectionError) as error:
@@ -115,8 +121,8 @@ def test_registration_is_idempotent_and_preserves_existing_one_court_subscriptio
     register_gangseo_courts(factory, inventory())
     register_gangseo_courts(factory, inventory())
     with factory() as session:
-        assert len(list(session.scalars(select(Facility)))) == 3
-        assert len(list(session.scalars(select(Court)))) == 3
+        assert len(list(session.scalars(select(Facility)))) == 6
+        assert len(list(session.scalars(select(Court)))) == 6
         assert session.scalar(select(Subscription)).facility_id == old_id
         old = session.get(Facility, old_id)
         assert old.last_collected_at is not None and old.external_id == "GANGSEO02:T:03:2"
@@ -173,3 +179,52 @@ def test_discovery_cli_does_not_register_or_claim_availability(monkeypatch, caps
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] and result["facility_count"] == 3
     assert result["registered"] is False and result["availability_checked"] is False
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 5])
+def test_wujang_inventory_requires_all_four_real_options(count):
+    rows = [{"value": str(900 + n), "label": f"모의 {n}코트"} for n in range(count)]
+    with pytest.raises(CollectionError) as error:
+        parse_court_options(rows, "GANGSEO02:T:03")
+    assert error.value.code == "COURT_INVENTORY_INCOMPLETE"
+    assert error.value.diagnostics["found_count"] == count
+
+
+def test_missing_wujang_court_prevents_any_database_registration():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    with pytest.raises(CollectionError):
+        register_gangseo_courts(factory, inventory()[:-1])
+    with factory() as session:
+        assert session.scalar(select(ReservationSite)) is None
+    engine.dispose()
+
+
+def test_discovery_selects_public_controls_in_order_with_request_spacing(monkeypatch):
+    from tenniswatch.collectors import gangseo
+    collector = GangseoCollector(robots_guard=Mock(minimum_interval_seconds=5))
+    collector._last_navigation = 100
+    monkeypatch.setattr(gangseo.clock, "monotonic", lambda: 100)
+    sleep = Mock()
+    monkeypatch.setattr(gangseo.clock, "sleep", sleep)
+    page = Mock()
+    config = config_for_id("GANGSEO02:T:03:2")
+    collector._select_discovery_context(page, config)
+    assert [c.args[0] for c in page.locator.call_args_list] == ["select#center", "select#part", "select#place"]
+    assert [c.args[0] for c in page.locator.return_value.select_option.call_args_list] == ["GANGSEO02", "03", "2"]
+    assert [c.args[0] for c in sleep.call_args_list] == [5, 5, 5]
+
+
+@pytest.mark.parametrize("stage", ["center", "part", "place"])
+def test_discovery_timeout_identifies_stage_without_page_data(stage, monkeypatch):
+    from playwright.sync_api import TimeoutError
+    from tenniswatch.collectors import gangseo
+    monkeypatch.setattr(gangseo.clock, "sleep", lambda _: None)
+    collector = GangseoCollector(robots_guard=Mock(minimum_interval_seconds=5))
+    page = Mock()
+    page.wait_for_function.side_effect = [None] * ["center", "part", "place"].index(stage) + [TimeoutError("private page content")]
+    with pytest.raises(CollectionError) as error:
+        collector._select_discovery_context(page, config_for_id("GANGSEO02:T:03:2"))
+    assert error.value.diagnostics == {"facility_group": "GANGSEO02:T:03", "stage": stage + "_options"}
+    assert "private" not in str(error.value)

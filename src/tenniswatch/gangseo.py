@@ -1,7 +1,7 @@
 """강서 공개 선택 목록에서 발견한 코트를 기존 코트별 시설 구조로 등록한다."""
 from sqlalchemy import select
 
-from .collectors.gangseo import BASE_URL, FACILITY_CATALOG, GangseoCollector, GangseoCourt, config_for_id
+from .collectors.gangseo import BASE_URL, FACILITY_CATALOG, GangseoCollector, GangseoCourt, config_for_id, validate_court_count
 from .models import Court, Facility, ReservationSite
 
 
@@ -10,6 +10,8 @@ def register_gangseo_courts(factory, courts: tuple[GangseoCourt, ...]) -> None:
     if (groups != set(FACILITY_CATALOG) or len({c.external_id for c in courts}) != len(courts)
         or not 3 <= len(courts) <= 60):
         raise ValueError("세 시설의 전체 선택 목록 검증 결과가 필요합니다.")
+    for group in groups:
+        validate_court_count(group, sum(c.external_id.rsplit(":", 1)[0] == group for c in courts))
     for item in courts:
         config_for_id(item.external_id)
         group = item.external_id.rsplit(":", 1)[0]

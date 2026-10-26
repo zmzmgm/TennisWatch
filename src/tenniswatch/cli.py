@@ -126,7 +126,10 @@ def main() -> None:
                 "booking_url": GangseoCollector.booking_url_for(item.external_id)} for item in courts]}, ensure_ascii=False))
         except Exception as exc:
             code = exc.code if isinstance(exc, CollectionError) else "DISCOVERY_OR_REGISTRATION_FAILED"
-            print(json.dumps({"ok": False, "error_code": code}, ensure_ascii=False))
+            result = {"ok": False, "error_code": code}
+            if isinstance(exc, CollectionError) and hasattr(exc, "diagnostics"):
+                result["selection_diagnostics"] = exc.diagnostics
+            print(json.dumps(result, ensure_ascii=False))
             raise SystemExit(1)
         return
     if args.command in ("probe-gyeyang", "init-gyeyang"):

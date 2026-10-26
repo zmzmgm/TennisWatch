@@ -202,3 +202,5 @@ DB 등록과 수동 감시(대상 2곳·관측 99개·오류 0개)도 성공했�
 [정책 조사·실행 방법·지원 제한](docs/gyeyang-reservation-policy.md)을 확인하세요.
 HTTP 응답의 동적 선택 목록이 비어 있으면 Playwright로 로딩을 기다립니다.
 최초 실행 전에 `.venv/bin/python -m playwright install chromium`으로 브라우저를 설치하세요.
+
+우장산 전체 4코트 등록은 `.venv/bin/tenniswatch init-gangseo-all`을 사용합니다. 실제 목록 4개가 모두 확인돼야 등록하며 코트 식별자를 추정하지 않습니다. 기존 1코트 감시 조건은 자동 확대되지 않습니다. 등록 후 원하는 날짜·시간대로 전체 4코트 감시를 요청하고 감시 목록을 확인하세요. 목록 조회 오류의 단계와 실제 검증 범위는 [강서 수집 문서](docs/gangseo-collector.md)를 참고하세요.

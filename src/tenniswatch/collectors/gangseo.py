@@ -71,7 +71,16 @@ def parse_court_options(options, group: str) -> tuple[GangseoCourt, ...]:
         courts.append(GangseoCourt(f"{group}:{value}", FACILITY_CATALOG[group]["name"], label))
     if not 1 <= len(courts) <= 20:
         raise CollectionError("COURT_INVENTORY_UNVERIFIED", "코트 선택 목록이 비어 있거나 변경됐습니다.")
+    validate_court_count(group, len(courts))
     return tuple(courts)
+
+
+def validate_court_count(group: str, count: int) -> None:
+    # 사용자가 요청한 우장산 전체 4면을 일부 목록으로 등록하지 않는다.
+    if group == "GANGSEO02:T:03" and count != 4:
+        error = CollectionError("COURT_INVENTORY_INCOMPLETE", "우장산 4개 코트 목록을 모두 확인해야 합니다.")
+        error.diagnostics = {"facility_group": group, "expected_count": 4, "found_count": count}
+        raise error
 
 # 기존 외부 사용자의 import 호환용 1코트 상수다. 전체 지원 범위는 FACILITY_CATALOG와
 # 실제 발견한 선택 목록을 사용하며, 여기에 다른 코트 번호를 추정해 채우지 않는다.
@@ -247,6 +256,29 @@ class GangseoCollector(BaseCollector):
             raise CollectionError("UNEXPECTED_PAGE", "Gangseo redirected away from the public calendar.")
         return page
 
+    def _select_discovery_context(self, page, config):
+        """공개 선택 목록을 센터→종목→코트 순서로 최대 한 번씩 선택한다."""
+        for field in ("center", "part", "place"):
+            try:
+                page.wait_for_function("""({field, value}) => {
+                    const select = document.querySelector('select#' + field);
+                    return select && !select.disabled && Array.from(select.options).some(
+                        option => !option.disabled && option.value === value);
+                }""", arg={"field": field, "value": config[field]}, timeout=self.timeout_ms)
+                # 이미 선택돼 있어도 change를 한 번 발생시켜 하위 목록의 초기화를 요청한다.
+                interval = max(self.min_interval_seconds, self.robots_guard.minimum_interval_seconds)
+                if interval > 60:
+                    raise CollectionError("ROBOTS_RATE_LIMIT", "요청 간격 제한으로 조회를 중단했습니다.")
+                if self._last_navigation is not None:
+                    clock.sleep(max(0, interval - (clock.monotonic() - self._last_navigation)))
+                self._last_navigation = clock.monotonic()
+                page.locator(f"select#{field}").select_option(config[field], timeout=self.timeout_ms)
+            except BrowserTimeout:
+                error = CollectionError("COURT_DISCOVERY_TIMEOUT", "시설 선택 목록을 확인하지 못했습니다.")
+                error.diagnostics = {"facility_group": ":".join(config[k] for k in ("center", "facilities_type", "part")),
+                                     "stage": field + "_options"}
+                raise error from None
+
     def discover_courts(self) -> tuple[GangseoCourt, ...]:
         """공식 세 시설의 선택 목록을 모두 검증한 뒤 결과를 반환한다."""
         result = []
@@ -254,14 +286,7 @@ class GangseoCollector(BaseCollector):
             external_id = f"{group}:{info['entry_place']}"
             config = config_for_id(external_id)
             page = self._navigate(self.booking_url_for(external_id))
-            try:
-                page.wait_for_function("""expected => ['center','part'].every(
-                    id => document.getElementById(id)?.value === expected[id]) &&
-                    Array.from(document.querySelectorAll('select#place option')).some(
-                    option => !option.disabled && option.value === expected.place)""", arg=config,
-                    timeout=self.timeout_ms)
-            except BrowserTimeout:
-                raise CollectionError("COURT_DISCOVERY_TIMEOUT", "시설과 코트 선택 목록이 로딩되지 않았습니다.") from None
+            self._select_discovery_context(page, config)
             snapshot = page.evaluate("""() => ({
                 selected: Object.fromEntries(['center','part'].map(id => [id, document.getElementById(id)?.value])),
                 options: Array.from(document.querySelectorAll('select#place option')).map(
