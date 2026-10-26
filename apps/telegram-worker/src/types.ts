@@ -12,6 +12,8 @@ export interface Env {
   LLM_DAILY_TOKEN_BUDGET?: string;
   ALLOWED_TELEGRAM_CHAT_IDS?: string;
   INBOX_BATCH_SIZE?: string;
+  DASHBOARD_URL?: string;
+  DASHBOARD_SITE_ORIGIN?: string;
 }
 
 export interface TelegramTextUpdate {

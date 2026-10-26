@@ -63,3 +63,10 @@
 - 2026-10-26 GitHub Actions 재실행에서 DB 연결·Chromium 수집 1회·슬롯 관측 3개·오류 0개를 확인했다. 예약 오픈 작업도 성공했으며 검증 정책이 없어 알림 0건이었다.
 - 같은 실행의 일일 보고는 Telegram API 성공 1건·실패 0건이었다. API 응답 성공과 사용자의 단말 수신 확인은 구분한다. 지원 범위는 여전히 우장산 1코트다.
 - psycopg의 INSERT rowcount=-1을 발송 건수로 사용하지 않는다. 일일 보고 생성 건수는 RETURNING id 결과로 계산한다.
+
+## 조회 전용 대시보드
+
+- 공용 UI는 apps/dashboard/worker/index.js, 인증·소유자 조회는 기존 Telegram Worker의 src/dashboard에서 유지한다. 브라우저에 Supabase 키를 넣지 않는다.
+- /dashboard 명령은 AI를 호출하지 않고 검증한 개인 사용자에게 15분 읽기 전용 코드를 발급한다. URL·브라우저 저장소에 코드를 넣지 않고 서버에서 서명·만료·허용 채팅·사용자 활성·소유자를 확인한다.
+- 대시보드에서는 설정을 수정하지 않는다. 실제 배포·로그인·조회와 시각적 QA를 수행하지 않았다면 완료로 주장하지 않는다.
+- Sites 프로젝트 ID는 apps/dashboard/.openai/hosting.json에 보존한다. 현재 소스 저장소 DNS 실패로 별도 Sites 게시가 미완료다. 프로젝트를 중복 생성하지 않는다.
