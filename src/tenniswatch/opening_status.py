@@ -5,8 +5,26 @@ from sqlalchemy import select
 
 from .domain import as_utc
 from .models import Facility, Notification, PolicyChange, ReservationPolicy, ReservationSchedule, TelegramUser, UserWatch
-from .opening import policy_can_notify, policy_snapshot_matches, watch_matches_schedule
+from .opening import policy_is_valid, policy_source_current, policy_snapshot_matches, watch_matches_schedule
 from .watches import eligible_watches
+
+
+def readiness_issues(policy, schedule, now):
+    """발송 준비를 막는 조건을 안전한 코드로 설명한다."""
+    issues = []
+    if not schedule.verified:
+        issues.append("SCHEDULE_UNVERIFIED")
+    if policy is None:
+        return issues + ["MISSING_POLICY"]
+    if not policy.verified:
+        issues.append("POLICY_UNVERIFIED")
+    if not policy_is_valid(policy):
+        issues.append("INVALID_POLICY_RULE")
+    if not policy_source_current(policy, now):
+        issues.append("POLICY_SOURCE_FAILED" if policy.source_check_error else "POLICY_SOURCE_NOT_CURRENT")
+    if not policy_snapshot_matches(policy):
+        issues.append("POLICY_SNAPSHOT_CHANGED")
+    return issues
 
 
 def policy_change_diagnostic(change):
@@ -29,7 +47,7 @@ def policy_change_diagnostic(change):
 def opening_status(factory, chat_id, *, now=None):
     now = as_utc(now or datetime.now(timezone.utc))
     result = {"linked_user": False, "opening_watches": 0, "pending_activation": 0,
-              "upcoming": [], "notification_states": {}}
+              "upcoming": [], "notification_states": {}, "checked_at": now.isoformat()}
     if not chat_id:
         return result
     with factory() as session:
@@ -53,10 +71,14 @@ def opening_status(factory, chat_id, *, now=None):
             facility = session.get(Facility,schedule.facility_id)
             latest_change = session.scalar(select(PolicyChange).where(PolicyChange.policy_id == schedule.policy_id)
                                           .order_by(PolicyChange.id.desc()).limit(1))
+            issues = readiness_issues(policy, schedule, now)
             result["upcoming"].append({"facility":facility.name,"audience":schedule.audience,
                 "opens_at":as_utc(schedule.opens_at).isoformat(),"play_date":schedule.play_date.isoformat(),
                 "play_date_end":(schedule.play_date_end or schedule.play_date).isoformat(),
-                "policy_ready":bool(policy and schedule.verified and policy_can_notify(policy,now)),
+                "policy_ready": not issues,
+                "readiness_issues": issues,
+                "schedule_verified": bool(schedule.verified),
+                "policy_source_checked_at": as_utc(policy.source_checked_at).isoformat() if policy and policy.source_checked_at else None,
                 "policy_id": schedule.policy_id,
                 "policy_verified": bool(policy and policy.verified),
                 "snapshot_matches": bool(policy and policy_snapshot_matches(policy)),

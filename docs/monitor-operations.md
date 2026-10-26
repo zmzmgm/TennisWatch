@@ -65,6 +65,8 @@ GitHub 저장소의 Actions Secrets에는 `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`�
 
 예약 오픈 감시를 저장할 때 `reminders`는 `day_before`, `hour_before`, `opened` 중 1~3개이며 기본은 모두입니다. `opened`는 매시 작업이 오픈 후 확인할 때만 보냅니다. 세 시점은 DB 고유 키와 작업 재검증을 사용하고, 이미 전송된 알림은 같은 일정 버전에서 다시 만들지 않습니다. 예약 오픈 시각이 변경되면 새 일정 버전이 됩니다.
 
+`opening-status`의 `pending_activation: 0`은 감시 조건이 활성화됐다는 뜻이며 모든 일정의 현재 발송 가능 상태를 보장하지 않습니다. `policy_ready: false`이면 `readiness_issues`를 확인합니다. `SCHEDULE_UNVERIFIED`는 일정 검증, `POLICY_SOURCE_NOT_CURRENT`는 출처 확인 시각 또는 신선도, `POLICY_SNAPSHOT_CHANGED`는 정책 내용 비교 문제입니다. `checked_at`과 `policy_source_checked_at`은 UTC이며 PC 시각 차이도 확인합니다. 과거 `SENT` 기록이 있더라도 다음 알림의 준비 상태는 별도로 확인합니다.
+
 ## GitHub Actions
 
 로컬에서 검증된 새 정책이 정기 작업 후 다시 미검증으로 바뀌면, Actions 실행의 커밋과 로컬 코드 버전을 먼저 확인합니다. 2026-10-26 점검에서는 GitHub 기본 브랜치가 주간 정책 도입 전 `bcc38ac`에 머물러 있었습니다. 이 이전 코드는 주간 정책 필드를 보존하지 않는 스냅샷을 저장하므로 새 코드와 번갈아 실행하면 검증이 다시 해제될 수 있습니다. 최신 코드를 기본 브랜치에 반영한 뒤 해당 커밋으로 새 작업을 실행하고 정책 상태를 재확인합니다. 이전 실행의 `Re-run`은 이전 코드를 실행하므로 최신 확인에는 `Run workflow`를 사용합니다.

@@ -297,6 +297,32 @@ def test_first_late_run_sends_only_hour_reminder_and_respects_audience(db):
         assert [row.kind for row in session.scalars(select(Notification))] == ["opening_hour_before"]
 
 
+@pytest.mark.parametrize("blocker", [None, "SCHEDULE_UNVERIFIED", "POLICY_SOURCE_NOT_CURRENT", "POLICY_SNAPSHOT_CHANGED"])
+def test_opening_status_explains_readiness_independently_of_active_watch(db, blocker):
+    from tenniswatch.opening_status import opening_status
+    add_watch(db, kind="opening", criteria={"play_date": OPEN_PLAY.isoformat()})
+    policy_id = add_policy(db)
+    check_opening_schedules(db, now=NOW, activate_watches=True)
+    with db.begin() as session:
+        policy = session.get(ReservationPolicy, policy_id)
+        if blocker == "SCHEDULE_UNVERIFIED":
+            session.scalar(select(ReservationSchedule)).verified = False
+        if blocker == "POLICY_SOURCE_NOT_CURRENT":
+            policy.source_digest = "a" * 64
+            policy.source_checked_at = NOW - timedelta(hours=37)
+            track_policy_change(session, policy)
+            policy.verified = True
+            session.flush()
+            session.scalar(select(ReservationSchedule)).verified = True
+        if blocker == "POLICY_SNAPSHOT_CHANGED":
+            policy.open_time = time(11)
+    status = opening_status(db, "private-chat", now=NOW)
+    assert status["pending_activation"] == 0
+    row = status["upcoming"][0]
+    assert row["policy_ready"] is (blocker is None)
+    assert row["readiness_issues"] == ([] if blocker is None else [blocker])
+
+
 def test_unverified_policy_never_activates_or_enqueues_opening_alert(db):
     add_watch(db, kind="opening", status="PENDING_ACTIVATION", criteria={"play_date": OPEN_PLAY.isoformat()})
     add_policy(db, verified=False)
