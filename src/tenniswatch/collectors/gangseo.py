@@ -257,14 +257,19 @@ class GangseoCollector(BaseCollector):
         return page
 
     def _select_discovery_context(self, page, config):
-        """공개 선택 목록을 센터→종목→코트 순서로 최대 한 번씩 선택한다."""
+        """센터·종목을 선택하고 실제 코트 목록을 읽는다. 진입 코트 값은 강제하지 않는다."""
         for field in ("center", "part", "place"):
             try:
                 page.wait_for_function("""({field, value}) => {
                     const select = document.querySelector('select#' + field);
                     return select && !select.disabled && Array.from(select.options).some(
-                        option => !option.disabled && option.value === value);
+                        option => !option.disabled && (field === 'place'
+                            ? /^[1-9][0-9]{0,7}$/.test(option.value)
+                            : option.value === value));
                 }""", arg={"field": field, "value": config[field]}, timeout=self.timeout_ms)
+                if field == "place":
+                    # 발견은 현재 목록이 진실의 원천이다. 슬롯 수집 시에는 별도로 정확한 코트를 검증한다.
+                    continue
                 # 이미 선택돼 있어도 change를 한 번 발생시켜 하위 목록의 초기화를 요청한다.
                 interval = max(self.min_interval_seconds, self.robots_guard.minimum_interval_seconds)
                 if interval > 60:
@@ -312,8 +317,6 @@ class GangseoCollector(BaseCollector):
             if snapshot["selected"] != {key: config[key] for key in ("center", "part")}:
                 raise CollectionError("PAGE_SELECTION_MISMATCH", "발견 중 시설 선택이 변경됐습니다.")
             courts = parse_court_options(snapshot["options"], group)
-            if not any(item.external_id == external_id for item in courts):
-                raise CollectionError("COURT_INVENTORY_UNVERIFIED", "공식 링크의 코트가 선택 목록에 없습니다.")
             result.extend(courts)
         return tuple(result)
 

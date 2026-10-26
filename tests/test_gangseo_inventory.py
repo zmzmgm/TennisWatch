@@ -211,9 +211,9 @@ def test_discovery_selects_public_controls_in_order_with_request_spacing(monkeyp
     page = Mock()
     config = config_for_id("GANGSEO02:T:03:2")
     collector._select_discovery_context(page, config)
-    assert [c.args[0] for c in page.locator.call_args_list] == ["select#center", "select#part", "select#place"]
-    assert [c.args[0] for c in page.locator.return_value.select_option.call_args_list] == ["GANGSEO02", "03", "2"]
-    assert [c.args[0] for c in sleep.call_args_list] == [5, 5, 5]
+    assert [c.args[0] for c in page.locator.call_args_list] == ["select#center", "select#part"]
+    assert [c.args[0] for c in page.locator.return_value.select_option.call_args_list] == ["GANGSEO02", "03"]
+    assert [c.args[0] for c in sleep.call_args_list] == [5, 5]
 
 
 @pytest.mark.parametrize("stage", ["center", "part", "place"])
@@ -271,3 +271,29 @@ def test_scoped_cli_passes_group_and_reports_actual_scope(monkeypatch, capsys):
     collector.discover_courts.assert_called_once_with(groups=("GANGSEO02:T:03",))
     result = json.loads(capsys.readouterr().out)
     assert result["facility_count"] == 1 and result["court_count"] == 4
+
+
+def test_discovery_uses_actual_court_id_when_entry_link_is_outdated(monkeypatch):
+    from tenniswatch.collectors import gangseo
+    monkeypatch.setattr(gangseo.clock, "sleep", lambda _: None)
+    collector = GangseoCollector(robots_guard=Mock(minimum_interval_seconds=5))
+    page = Mock()
+    collector._navigate = Mock(return_value=page)
+    # 901은 회귀 테스트용 합성 식별자이며 실제 황금내 번호를 뜻하지 않는다.
+    page.evaluate.return_value = {"selected": {"center": "GANGSEO05", "part": "02"},
+        "options": [{"value": "901", "label": "모의 코트"}]}
+    courts = collector.discover_courts(groups=("GANGSEO05:C:02",))
+    assert [court.external_id for court in courts] == ["GANGSEO05:C:02:901"]
+    assert "place=901" in collector.booking_url_for(courts[0].external_id)
+    assert [call.args[0] for call in page.locator.call_args_list] == ["select#center", "select#part"]
+
+
+def test_empty_placeholder_is_not_a_court_when_entry_link_is_outdated():
+    collector = GangseoCollector()
+    page = Mock()
+    collector._navigate = Mock(return_value=page)
+    collector._select_discovery_context = Mock()
+    page.evaluate.return_value = {"selected": {"center": "GANGSEO05", "part": "02"},
+        "options": [{"value": "0", "label": "코트 선택"}]}
+    with pytest.raises(CollectionError):
+        collector.discover_courts(groups=("GANGSEO05:C:02",))
