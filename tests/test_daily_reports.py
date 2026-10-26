@@ -178,3 +178,21 @@ def test_legacy_overnight_window_keeps_existing_filter_semantics(db):
         s.add(Subscription(user_id=1,facility_id=1,weekdays='1',start_time=time(20),end_time=time(2)))
     with db() as s:
         assert '1코트 · 예약 가능' in render_daily_report(s,1,NOW)
+
+
+def test_daily_queue_count_uses_insert_result_when_driver_rowcount_is_unknown(db,monkeypatch):
+    from sqlalchemy.orm import Session
+    original=Session.execute
+    class UnknownRowCount:
+        rowcount=-1
+        def __init__(self,result): self.result=result
+        def scalar_one_or_none(self): return self.result.scalar_one_or_none()
+    def execute(session,statement,*args,**kwargs):
+        result=original(session,statement,*args,**kwargs)
+        if getattr(statement,'is_insert',False) and statement.table.name=='notifications':
+            return UnknownRowCount(result)
+        return result
+    monkeypatch.setattr(Session,'execute',execute)
+    assert enqueue_daily_reports(db,now=NOW)==1
+    with db.begin() as s: s.get(DailyReportSetting,1).next_run_at=NOW-timedelta(minutes=1)
+    assert enqueue_daily_reports(db,now=NOW)==0

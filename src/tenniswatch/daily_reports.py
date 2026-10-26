@@ -63,8 +63,10 @@ def enqueue_daily_reports(factory, *, now=None):
             insert = pg_insert if session.bind.dialect.name == 'postgresql' else sqlite_insert
             result = session.execute(insert(Notification).values(user_id=setting.user_id, kind='daily_report',
                 report_date=local.date(), report_revision=setting.revision, status='PENDING', attempts=0,
-                next_attempt_at=now).on_conflict_do_nothing(index_elements=['user_id','kind','report_date']))
-            count += result.rowcount or 0
+                next_attempt_at=now).on_conflict_do_nothing(index_elements=['user_id','kind','report_date'])
+                .returning(Notification.id))
+            # psycopg may return rowcount=-1; count the actual inserted IDs instead.
+            count += int(result.scalar_one_or_none() is not None)
             setting.next_run_at = next_daily_run(setting.minute_of_day, now)
     return count
 

@@ -4,9 +4,9 @@ Telegram 자연어 대화와 Python 수집기를 사용하는 공공 테니스�
 
 ## 현재 상태
 
-- 매일 지정 시각의 예약 가능 코트 보고 기능을 추가했습니다. 기존 감시 조건 기준이며 실제 발송 활성화에는 `0008` 적용·Worker/Workflow 반영·사용자 시각 설정이 필요합니다. [설정 방법](docs/daily-reports.md).
+- 매일 지정 시각의 예약 가능 코트 보고 기능을 추가했습니다. 기존 감시 조건 기준이며, `0008` 적용 및 GitHub Actions에서 보고 생성·Telegram API 전송 성공을 확인했습니다. 신규 사용자는 시각 설정과 Secrets 등록이 필요합니다. 자연어 설정 관리에는 Worker 배포가 필요합니다. [설정 방법](docs/daily-reports.md).
 
-- Phase 7: Cloudflare 배포·Telegram 웹훅·Gemini 도구 호출·Supabase 감시 조건 조회까지 사용자가 실제 대화로 확인했습니다. GitHub Actions의 정기 수집·알림은 별도 설정과 실행 검증이 필요합니다. [배포·운영 안내](docs/deployment.md).
+- Phase 7: Cloudflare 배포·Telegram 웹훅·Gemini 도구 호출·Supabase 감시 조건 조회까지 사용자가 실제 대화로 확인했습니다. 이후 GitHub Actions 감시 재실행에서 수집 1회·슬롯 관측 3개·오류 0개, 일일 보고 Telegram API 전송 성공 1건을 확인했습니다. 사용자 단말 수신 확인은 별도입니다. [배포·운영 안내](docs/deployment.md).
 
 - Phase 1 분석: 기존 Python 수집기와 모니터링 기반을 확인하고, 확장 아키텍처를 `docs/phase1-architecture.md`에 정리했습니다.
 - 신규 구성은 Supabase PostgreSQL, SQLAlchemy 2.x/Alembic, GitHub Actions, Telegram Bot API를 기준으로 합니다.
@@ -91,7 +91,7 @@ tenniswatch check-policies
 
 ### 검증 현황
 
-- `.venv/bin/pytest -q`: 119개 통과 (모의 DB·HTML·HTTP, 채팅 연결·구독 등록·감시·발송·오픈 일정 포함).
+- `.venv/bin/pytest -q`: 120개 통과 (모의 DB·HTML·HTTP, 채팅 연결·구독 등록·감시·발송·오픈 일정 포함).
 - Worker `npm test`: 59개 통과, `npm run typecheck`: 통과.
 - `.venv/bin/python -m compileall -q src tests alembic`: 통과.
 - Phase 5 실제 Chrome에서는 공개 예약 페이지가 열렸지만 센터 목록이 불러오기 오류로 끝났습니다. 로컬 실행은 DNS 접근 실패와 Chromium 미설치로 실제 시간표 수집을 검증하지 못했습니다. 이후 사용자는 Cloudflare·Telegram·Gemini·Supabase를 연결해 기존 감시 조건 조회 응답을 확인했습니다. Actions 정기 실행과 신규 잔여석 알림까지 검증된 것은 아닙니다.
