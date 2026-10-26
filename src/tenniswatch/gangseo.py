@@ -5,11 +5,12 @@ from .collectors.gangseo import BASE_URL, FACILITY_CATALOG, GangseoCollector, Ga
 from .models import Court, Facility, ReservationSite
 
 
-def register_gangseo_courts(factory, courts: tuple[GangseoCourt, ...]) -> None:
+def register_gangseo_courts(factory, courts: tuple[GangseoCourt, ...], *, expected_groups=None) -> None:
     groups = {item.external_id.rsplit(":", 1)[0] for item in courts}
-    if (groups != set(FACILITY_CATALOG) or len({c.external_id for c in courts}) != len(courts)
-        or not 3 <= len(courts) <= 60):
-        raise ValueError("세 시설의 전체 선택 목록 검증 결과가 필요합니다.")
+    expected = set(FACILITY_CATALOG) if expected_groups is None else set(expected_groups)
+    if (not expected or not expected <= set(FACILITY_CATALOG) or groups != expected or len({c.external_id for c in courts}) != len(courts)
+        or not 1 <= len(courts) <= 60):
+        raise ValueError("요청한 시설의 전체 선택 목록 검증 결과가 필요합니다.")
     for group in groups:
         validate_court_count(group, sum(c.external_id.rsplit(":", 1)[0] == group for c in courts))
     for item in courts:

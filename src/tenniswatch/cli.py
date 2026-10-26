@@ -92,6 +92,7 @@ def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(prog="tenniswatch")
     parser.add_argument("command", choices=["discover-gangseo", "init-gangseo-all", "init-gyeyang-opening", "opening-status", "init-gyeyang", "probe-gyeyang", "init-gangseo", "check-policies", "watch-slots", "collect-slots", "probe-gangseo", "send-outbox", "collection-plan", "verify-policy", "link-telegram", "subscribe-gangseo", "prepare-worker", "register-webhook", "check-worker-db", "worker-status", "check-gemini-models", "set-daily-report", "disable-daily-report", "daily-reports"])
+    parser.add_argument("--facility-group", choices=tuple(FACILITY_CATALOG), help="강서 발견·등록 대상 시설 그룹(생략 시 세 시설 전체)")
     parser.add_argument("--facility", help="probe-gangseo로 점검할 코트 외부 식별자(discover-gangseo 출력값)")
     parser.add_argument("--date", help="확인/구독할 날짜 (YYYY-MM-DD)")
     parser.add_argument("--report-time", help="매일 결과를 받을 한국 시각 HH:MM")
@@ -103,6 +104,7 @@ def main() -> None:
     parser.add_argument("--replace-webhook", action="store_true", help="기존 다른 웹훅 주소를 명시적으로 교체")
     args = parser.parse_args()
     if args.command in ("discover-gangseo", "init-gangseo-all"):
+        groups = (args.facility_group,) if args.facility_group else tuple(FACILITY_CATALOG)
         if args.command == "init-gangseo-all" and not os.getenv("DATABASE_URL"):
             parser.error("DATABASE_URL이 필요합니다.")
         try:
@@ -114,13 +116,13 @@ def main() -> None:
                         if not acquired:
                             parser.error("다른 감시 작업이 실행 중입니다. 잠시 후 다시 등록하세요.")
                         with GangseoCollector() as collector:
-                            courts = collector.discover_courts()
-                        register_gangseo_courts(factory, courts)
+                            courts = collector.discover_courts(groups=groups)
+                        register_gangseo_courts(factory, courts, expected_groups=groups)
             else:
                 with GangseoCollector() as collector:
-                    courts = collector.discover_courts()
+                    courts = collector.discover_courts(groups=groups)
             print(json.dumps({"ok": True, "registered": args.command == "init-gangseo-all",
-                "facility_count": len(FACILITY_CATALOG), "court_count": len(courts),
+                "facility_count": len(groups), "court_count": len(courts),
                 "availability_checked": False, "courts": [{"external_id": item.external_id,
                 "facility": item.facility_name, "court": item.court_name,
                 "booking_url": GangseoCollector.booking_url_for(item.external_id)} for item in courts]}, ensure_ascii=False))
@@ -143,7 +145,7 @@ def main() -> None:
             with GyeyangCollector() as collector:
                 observations = list(collector.collect_slots(
                     FacilityRef(1, "계양테니스장", GYEYANG_KEY, GYEYANG_URL), play_date))
-                courts = collector.discover_courts()
+                courts = collector.discover_courts(groups=groups)
             if args.command == "init-gyeyang":
                 from .gyeyang import register_gyeyang
                 register_gyeyang(make_session_factory(), courts)

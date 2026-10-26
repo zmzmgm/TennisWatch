@@ -204,3 +204,5 @@ HTTP 응답의 동적 선택 목록이 비어 있으면 Playwright로 로딩을 
 최초 실행 전에 `.venv/bin/python -m playwright install chromium`으로 브라우저를 설치하세요.
 
 우장산 전체 4코트 등록은 `.venv/bin/tenniswatch init-gangseo-all`을 사용합니다. 실제 목록 4개가 모두 확인돼야 등록하며 코트 식별자를 추정하지 않습니다. 기존 1코트 감시 조건은 자동 확대되지 않습니다. 등록 후 원하는 날짜·시간대로 전체 4코트 감시를 요청하고 감시 목록을 확인하세요. 목록 조회 오류의 단계와 실제 검증 범위는 [강서 수집 문서](docs/gangseo-collector.md)를 참고하세요.
+
+황금내 등 다른 시설의 목록 오류로 전체 등록이 중단되면 우장산만 명시해 등록할 수 있습니다: `.venv/bin/tenniswatch init-gangseo-all --facility-group GANGSEO02:T:03`. 실제 4코트 검증 조건은 동일합니다.

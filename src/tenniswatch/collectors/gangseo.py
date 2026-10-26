@@ -277,12 +277,30 @@ class GangseoCollector(BaseCollector):
                 error = CollectionError("COURT_DISCOVERY_TIMEOUT", "시설 선택 목록을 확인하지 못했습니다.")
                 error.diagnostics = {"facility_group": ":".join(config[k] for k in ("center", "facilities_type", "part")),
                                      "stage": field + "_options"}
+                try:
+                    error.diagnostics["controls"] = page.evaluate("""expected =>
+                        Object.fromEntries(['center','part','place'].map(id => {
+                            const controls = document.querySelectorAll('select#' + id);
+                            const control = controls[0];
+                            const options = Array.from(control?.options || []);
+                            return [id, {control_count: controls.length, option_count: options.length,
+                                disabled: Boolean(control?.disabled),
+                                expected_selected: control?.value === expected[id],
+                                expected_option_present: options.some(o => o.value === expected[id]),
+                                enabled_option_count: options.filter(o => !o.disabled && /^[1-9][0-9]*$/.test(o.value)).length}];
+                        }))""", config)
+                except Exception:
+                    error.diagnostics["diagnostics_unavailable"] = True
                 raise error from None
 
-    def discover_courts(self) -> tuple[GangseoCourt, ...]:
+    def discover_courts(self, *, groups=None) -> tuple[GangseoCourt, ...]:
         """공식 세 시설의 선택 목록을 모두 검증한 뒤 결과를 반환한다."""
+        selected_groups = tuple(FACILITY_CATALOG) if groups is None else tuple(groups)
+        if not selected_groups or len(set(selected_groups)) != len(selected_groups) or any(g not in FACILITY_CATALOG for g in selected_groups):
+            raise ValueError("지원하는 시설 그룹을 지정하세요.")
         result = []
-        for group, info in FACILITY_CATALOG.items():
+        for group in selected_groups:
+            info = FACILITY_CATALOG[group]
             external_id = f"{group}:{info['entry_place']}"
             config = config_for_id(external_id)
             page = self._navigate(self.booking_url_for(external_id))

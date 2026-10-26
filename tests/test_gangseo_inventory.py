@@ -226,5 +226,48 @@ def test_discovery_timeout_identifies_stage_without_page_data(stage, monkeypatch
     page.wait_for_function.side_effect = [None] * ["center", "part", "place"].index(stage) + [TimeoutError("private page content")]
     with pytest.raises(CollectionError) as error:
         collector._select_discovery_context(page, config_for_id("GANGSEO02:T:03:2"))
-    assert error.value.diagnostics == {"facility_group": "GANGSEO02:T:03", "stage": stage + "_options"}
+    assert error.value.diagnostics["facility_group"] == "GANGSEO02:T:03"
+    assert error.value.diagnostics["stage"] == stage + "_options"
     assert "private" not in str(error.value)
+
+
+def test_wujang_only_discovery_does_not_visit_other_facilities():
+    collector = GangseoCollector()
+    page = Mock()
+    collector._navigate = Mock(return_value=page)
+    collector._select_discovery_context = Mock()
+    page.evaluate.return_value = {"selected": {"center": "GANGSEO02", "part": "03"},
+        "options": [{"value": c.external_id.rsplit(":", 1)[1], "label": c.court_name}
+                    for c in inventory() if c.external_id.startswith("GANGSEO02:")]}
+    result = collector.discover_courts(groups=("GANGSEO02:T:03",))
+    assert len(result) == 4
+    collector._navigate.assert_called_once()
+
+
+def test_scoped_registration_requires_complete_requested_group():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    courts = tuple(c for c in inventory() if c.external_id.startswith("GANGSEO02:"))
+    with pytest.raises(ValueError):
+        register_gangseo_courts(factory, courts)
+    register_gangseo_courts(factory, courts, expected_groups=("GANGSEO02:T:03",))
+    with factory() as session:
+        assert len(list(session.scalars(select(Facility)))) == 4
+    engine.dispose()
+
+
+def test_scoped_cli_passes_group_and_reports_actual_scope(monkeypatch, capsys):
+    import json
+    from tenniswatch import cli
+    collector = Mock()
+    collector.__enter__ = Mock(return_value=collector)
+    collector.__exit__ = Mock(return_value=False)
+    collector.discover_courts.return_value = tuple(c for c in inventory() if c.external_id.startswith("GANGSEO02:"))
+    monkeypatch.setattr(cli, "GangseoCollector", Mock(return_value=collector, booking_url_for=GangseoCollector.booking_url_for))
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)
+    monkeypatch.setattr("sys.argv", ["tenniswatch", "discover-gangseo", "--facility-group", "GANGSEO02:T:03"])
+    cli.main()
+    collector.discover_courts.assert_called_once_with(groups=("GANGSEO02:T:03",))
+    result = json.loads(capsys.readouterr().out)
+    assert result["facility_count"] == 1 and result["court_count"] == 4
