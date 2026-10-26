@@ -10,6 +10,8 @@
   },
   "vars": {
     "INBOX_BATCH_SIZE": "1",
+    "DASHBOARD_URL": "https://tenniswatch-telegram-worker.tenniswatch-kkh.workers.dev/dashboard",
+    "DASHBOARD_SITE_ORIGIN": "https://tenniswatch-dashboard.adeptgnome512.chatgpt.site",
     "LLM_MAX_TOKENS": "700",
     "LLM_DAILY_USER_CALLS": "24",
     "LLM_DAILY_GLOBAL_CALLS": "100",

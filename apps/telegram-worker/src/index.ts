@@ -6,6 +6,8 @@ import { AgentRunner } from "./agent/runner";
 import { ToolRegistry } from "./agent/tools";
 import { SupabaseTennisTools } from "./db/tennis-tools";
 import { BudgetedLlmClient, SupabaseBudgetStore } from "./agent/budget";
+import { issueDashboardToken } from "./dashboard/auth";
+import { dashboardRoute } from "./dashboard/routes";
 import { allowedChats, validateEnv } from "./config";
 import { validSecret } from "./telegram/schemas";
 import type { ConversationState, Env, ExecutionContextLike, ScheduledController } from "./types";
@@ -17,7 +19,12 @@ function dependencies(env: Env) {
   return {
     repo: new SupabaseInboxRepository(env),
     telegram: new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),
-    assistant: { respond(userId: number, message: string, updateId: number, context?: ConversationState | null, chatId?: number) {
+    assistant: { async respond(userId: number, message: string, updateId: number, context?: ConversationState | null, chatId?: number) {
+      if (/^\/dashboard(?:@[A-Za-z0-9_]+)?\s*$/.test(message.trim())) {
+        const token = await issueDashboardToken(userId,chatId??userId,env.TELEGRAM_WEBHOOK_SECRET);
+        const address = env.DASHBOARD_URL ?? "https://tenniswatch-telegram-worker.tenniswatch-kkh.workers.dev/dashboard";
+        return {text:`알림 대시보드: ${address}\n\n아래 접속 코드를 대시보드에 입력하세요. 15분 동안 본인 설정을 조회할 수 있어요. 코드를 다른 사람에게 공유하지 마세요.\n\n${token}`};
+      }
       const model = new OpenAICompatibleClient({
         apiKey: env.LLM_API_KEY ?? "",
         model: env.LLM_MODEL ?? "",
@@ -37,6 +44,7 @@ function dependencies(env: Env) {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/dashboard" || url.pathname === "/api/dashboard") return dashboardRoute(request,env);
     if (url.pathname === "/health" && request.method === "GET") {
       return new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
     }
