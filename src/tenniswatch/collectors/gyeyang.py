@@ -27,6 +27,19 @@ def fail(code):
     raise CollectionError(code, "계양 공개 달력을 검증하지 못했습니다. 이전 예약 상태는 유지됩니다.")
 
 
+def fail_unknown_status(text: str, *, disabled: bool = False) -> None:
+    """Expose only a short status-like token, never the calendar row or reservation text."""
+    error = CollectionError("UNKNOWN_STATUS", "계양 공개 달력의 예약 상태를 확인하지 못했습니다.")
+    token = re.match(r"^\s*\d{2}:00\s+([^\s<>]{1,24})", text)
+    diagnostics = {"disabled_while_marked_available": disabled}
+    if token and re.fullmatch(r"[가-힣A-Za-z0-9_()/.-]{1,24}", token[1]):
+        diagnostics["observed_status_token"] = token[1]
+    else:
+        diagnostics["status_token_available"] = False
+    error.diagnostics = diagnostics
+    raise error
+
+
 def selector(soup, name):
     nodes = soup.select(f'select[name="{name}"], select#{name}')
     if len(nodes) != 1:
@@ -382,7 +395,7 @@ class GyeyangCollector(BaseCollector):
             text = item.get_text(" ", strip=True)
             match = SLOT_RE.match(text)
             if not match:
-                fail("UNKNOWN_STATUS")
+                fail_unknown_status(text)
             hour, status = int(match[1]), match[2]
             if hour not in range(6, 22) or hour in hours:
                 fail("INVALID_SLOT")
@@ -390,7 +403,7 @@ class GyeyangCollector(BaseCollector):
             available = status == "예약가능"
             if available and (item.find(["del", "s", "strike"]) or
                               item.select('[disabled], [aria-disabled="true"]')):
-                fail("UNKNOWN_STATUS")
+                fail_unknown_status(text, disabled=True)
             result.append(SlotObservation(
                 slot_key=f"{day.isoformat()}:{court.external_id}:{hour:02d}00-{hour+1:02d}00",
                 facility_id=facility.id, play_date=day, starts_at=time(hour, tzinfo=KST),

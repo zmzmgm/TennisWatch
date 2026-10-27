@@ -1,5 +1,6 @@
 """Plan subscribed collection targets and persist complete date snapshots atomically."""
 from dataclasses import dataclass
+import re
 from datetime import date, datetime, timedelta, timezone
 import time as clock
 from zoneinfo import ZoneInfo
@@ -68,17 +69,26 @@ def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None 
         if isinstance(watch.criteria, dict):
             include(facility, site, [day for day in days if criteria_includes_date(watch.criteria, day)])
 
-    latest_by_site: dict[int, datetime] = {}
+    latest_by_site: dict[int, tuple[datetime, str]] = {}
+    latest_by_facility: dict[int, tuple[datetime, str]] = {}
     if by_facility:
         site_ids = {entry[1].id for entry in by_facility.values()}
         for run in session.scalars(select(CollectionRun).where(CollectionRun.site_id.in_(site_ids))
                                    .order_by(CollectionRun.started_at.desc())):
-            latest_by_site.setdefault(run.site_id, utc(run.started_at))
+            if run.facility_id is None:
+                latest_by_site.setdefault(run.site_id, (utc(run.started_at), run.status))
+            else:
+                latest_by_facility.setdefault(run.facility_id, (utc(run.started_at), run.status))
     targets = []
     for facility, site, selected_days in by_facility.values():
-        latest = latest_by_site.get(site.id)
-        if latest and now < latest + timedelta(minutes=poll_interval_minutes or max(30, site.poll_minutes)):
-            continue
+        latest = latest_by_facility.get(facility.id) or latest_by_site.get(site.id)
+        if latest:
+            latest_started, latest_status = latest
+            # A failed/partial collection must be retried by the next scheduled run;
+            # only successful work (or a recent in-progress lease) starts the poll cooldown.
+            cooldown_status = latest_status in ("SUCCESS", "RUNNING")
+            if cooldown_status and now < latest_started + timedelta(minutes=poll_interval_minutes or max(30, site.poll_minutes)):
+                continue
         if selected_days:
             targets.append(CollectionTarget(site.id, site.key, FacilityRef(
                 facility.id, facility.name, facility.external_id, facility.booking_url), tuple(sorted(selected_days))))
@@ -111,6 +121,7 @@ def collect_targets(factory, registry: CollectorRegistry, days_ahead: int = 7, *
                     run_id = run.id
                 records = successful_dates = 0
                 error_code = None
+                error_diagnostics = {}
                 failed_date = None
                 for day in target.play_dates:
                     try:
@@ -143,6 +154,7 @@ def collect_targets(factory, registry: CollectorRegistry, days_ahead: int = 7, *
                         successful_dates += 1
                     except Exception as exc:
                         error_code = exc.code if isinstance(exc, CollectionError) else "COLLECTION_FAILED"
+                        error_diagnostics = getattr(exc, "diagnostics", {}) if isinstance(exc, CollectionError) else {}
                         failed_date = day.isoformat()
                         errors += 1
                         # Stop on the first site error, rather than repeat a failing request for every date.
@@ -154,7 +166,14 @@ def collect_targets(factory, registry: CollectorRegistry, days_ahead: int = 7, *
                     run.duration_ms = int((clock.monotonic() - started) * 1000)
                     run.records_seen = records
                     run.error_code = error_code
-                    run.error = f"{failed_date}: {error_code}" if error_code else None
+                    if error_code:
+                        detail = ""
+                        token = error_diagnostics.get("observed_status_token") if isinstance(error_diagnostics, dict) else None
+                        if isinstance(token, str) and re.fullmatch(r"[가-힣A-Za-z0-9_()/.-]{1,24}", token):
+                            detail = f"; observed_status_token={token}"
+                        run.error = f"{failed_date}: {error_code}{detail}"
+                    else:
+                        run.error = None
                 runs += 1
                 total_records += records
         finally:

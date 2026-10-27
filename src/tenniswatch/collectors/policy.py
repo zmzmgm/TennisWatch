@@ -24,17 +24,21 @@ class RobotsGuard:
                 with httpx.Client(transport=self.transport, timeout=10, follow_redirects=False,
                                   headers={"User-Agent": USER_AGENT}) as client:
                     response = client.get(f"{self.base_url}/robots.txt")
+            except httpx.TimeoutException as exc:
+                raise CollectionError("ROBOTS_TIMEOUT", "robots.txt request timed out.") from exc
+            except httpx.ConnectError as exc:
+                raise CollectionError("ROBOTS_CONNECTION_FAILED", "robots.txt connection failed.") from exc
             except httpx.HTTPError as exc:
-                raise CollectionError("ROBOTS_UNAVAILABLE", "robots.txt could not be checked.") from exc
+                raise CollectionError("ROBOTS_REQUEST_FAILED", "robots.txt request failed.") from exc
             parser = RobotFileParser()
             if response.status_code in (404, 410):
                 parser.parse([])
             elif response.status_code == 200:
                 if len(response.content) > 512_000 or "<html" in response.text[:1000].lower():
-                    raise CollectionError("ROBOTS_UNAVAILABLE", "robots.txt returned an unexpected document.")
+                    raise CollectionError("ROBOTS_UNEXPECTED_CONTENT", "robots.txt returned an unexpected document.")
                 parser.parse(response.text.splitlines())
             else:
-                raise CollectionError("ROBOTS_UNAVAILABLE", "robots.txt did not return a usable response.")
+                raise CollectionError(f"ROBOTS_HTTP_{response.status_code}", "robots.txt did not return a usable response.")
             self._parser = parser
             delay = parser.crawl_delay(USER_AGENT) or parser.crawl_delay("*") or 0
             rate = parser.request_rate(USER_AGENT) or parser.request_rate("*")
