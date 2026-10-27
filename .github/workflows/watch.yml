@@ -1,7 +1,7 @@
 name: Availability watch
 on:
   schedule:
-    - cron: '7,37 * * * *' # 매시 7분·37분 실행; 실제 30분 수집에는 WATCH_INTERVAL_MINUTES=30 필요
+    - cron: '7,37 * * * *' # 매시 7분·37분 실행, 실제 수집 간격 기본값도 30분
   workflow_dispatch:
     inputs:
       command:
@@ -22,7 +22,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      WATCH_INTERVAL_MINUTES: ${{ vars.WATCH_INTERVAL_MINUTES }}
+      WATCH_INTERVAL_MINUTES: ${{ vars.WATCH_INTERVAL_MINUTES || '30' }}
       WATCH_DAYS_AHEAD: ${{ vars.WATCH_DAYS_AHEAD || '7' }}
     steps:
       - uses: actions/checkout@v4
