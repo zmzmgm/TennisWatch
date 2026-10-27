@@ -40,7 +40,7 @@ Telegram 알림 수신은 아직 미검증이다.
 
 ## 출처
 
-- [예약 페이지](https://www.gysportsclub.or.kr/res/?year=2026&month=11&rca_id=11&rca_id2=1010&rs_idx=6): 시설대관 이용안내.
+- [예약 페이지](https://www.gysportsclub.or.kr/res/?year=2026&month=11&rca_id=10&rca_id2=1010&rs_idx=6): 시설대관 이용안내.
 - [시설·이용 안내](https://www.gysportsclub.or.kr/theme/gysc/html/gym04.php): 위치, 코트 수, 운영시간, 휴무.
 - [인터넷 예약시스템 임시운영 안내](https://www.gysportsclub.or.kr/bbs/board.php?bo_table=notice&wr_id=21): 2025-05-28 게시. 과거 도입 공지이며 현재 안내와 비교하는 보조 자료다.
 

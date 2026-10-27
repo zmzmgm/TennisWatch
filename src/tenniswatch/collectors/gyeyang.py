@@ -17,7 +17,7 @@ from ..domain import SlotObservation
 
 BASE_URL = "https://www.gysportsclub.or.kr"
 BOOKING_URL = BASE_URL + "/res/"
-ENTRY_PARAMS = {"rca_id": "11", "rca_id2": "1010", "rs_idx": "6"}
+ENTRY_PARAMS = {"rca_id": "10", "rca_id2": "1010", "rs_idx": "6"}
 FACILITY_KEY = "gyeyang_tennis"
 KST = timezone(timedelta(hours=9))
 SLOT_RE = re.compile(r"^(\d{2}):00\s+(예약가능|예약완료|예약마감|예약불가|예약예정)(?:\s|$)")

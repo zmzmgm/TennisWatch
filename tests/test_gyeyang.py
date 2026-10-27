@@ -185,8 +185,8 @@ def test_dynamic_empty_selects_switch_to_browser_once_then_reuse_it(monkeypatch)
     with collector(monkeypatch,respond) as adapter:
         rendered=(BeautifulSoup(html(),"html.parser"),OBSERVED)
         adapter._get_browser=Mock(return_value=rendered)
-        assert adapter._get({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})==rendered
-        assert adapter._get({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})==rendered
+        assert adapter._get({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})==rendered
+        assert adapter._get({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})==rendered
         assert len(requests)==1 and adapter._get_browser.call_count==2
 
 
@@ -196,7 +196,7 @@ def test_live_dom_value_overrides_stale_html_selected_attribute(monkeypatch):
         page.goto.return_value=Mock(ok=True,status=200)
         page.url=BOOKING_URL
         page.content.return_value=html(court="7")
-        values={"rca_id":"11","rca_id2":"1010","rs_idx":"6"}
+        values={"rca_id":"10","rca_id2":"1010","rs_idx":"6"}
         page.content.return_value=html(court="7")
         page.locator.side_effect=lambda expression:Mock(input_value=lambda: next(
             value for name,value in values.items() if f'name="{name}"' in expression))
@@ -215,13 +215,13 @@ def test_browser_still_rejects_wrong_actual_court(monkeypatch):
         page.goto.return_value=Mock(ok=True,status=200)
         page.url=BOOKING_URL
         page.content.return_value=html(court="7")
-        values={"rca_id":"11","rca_id2":"1010","rs_idx":"7"}
+        values={"rca_id":"10","rca_id2":"1010","rs_idx":"7"}
         page.content.return_value=html(court="7")
         page.locator.side_effect=lambda expression:Mock(input_value=lambda: next(
             value for name,value in values.items() if f'name="{name}"' in expression))
         adapter._page=page
         with pytest.raises(CollectionError) as error:
-            adapter._get_browser({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})
+            adapter._get_browser({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})
         assert error.value.code=="PAGE_SELECTION_MISMATCH"
 
 
@@ -236,7 +236,7 @@ def test_browser_timeout_is_classified_and_browser_is_closed(monkeypatch):
     adapter._page=page
     with adapter:
         with pytest.raises(CollectionError) as error:
-            adapter._get_browser({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})
+            adapter._get_browser({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})
         assert error.value.code=="PAGE_SELECTION_TIMEOUT"
         assert "untrusted" not in str(error.value)
     page.close.assert_called_once()
@@ -248,7 +248,7 @@ def test_browser_refuses_access_restrictions_without_waiting(monkeypatch):
         page.goto.return_value=Mock(ok=False,status=403)
         adapter._page=page
         with pytest.raises(CollectionError) as error:
-            adapter._get_browser({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})
+            adapter._get_browser({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})
         assert error.value.code=="ACCESS_RESTRICTED"
         page.wait_for_function.assert_not_called()
 
@@ -260,12 +260,12 @@ def test_browser_reflection_failure_preserves_safe_diagnostics(monkeypatch):
         page.url=BOOKING_URL
         # JS 확인 이후에도 코트가 바뀌었거나 DOM 구조가 다르면 성공으로 처리하지 않는다.
         page.content.return_value=html()
-        values={"rca_id":"11","rca_id2":"1010","rs_idx":"99"}
+        values={"rca_id":"10","rca_id2":"1010","rs_idx":"99"}
         page.locator.side_effect=lambda expression:Mock(input_value=lambda: next(
             value for name,value in values.items() if f'name="{name}"' in expression))
         adapter._page=page
         with pytest.raises(CollectionError) as error:
-            adapter._get_browser({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})
+            adapter._get_browser({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})
         assert error.value.code=="PAGE_SELECTION_MISMATCH"
         assert error.value.diagnostics["stage"]=="reflect_live_values"
         assert error.value.diagnostics["rs_idx"]["live_numeric_value"]=="99"
@@ -280,12 +280,12 @@ def test_browser_ambiguous_duplicate_values_are_reported(monkeypatch):
         page.url=BOOKING_URL
         source=html().replace('<select name="rs_idx">','<select name="rs_idx"><option value="6">다른 시험코트</option>')
         page.content.return_value=source
-        values={"rca_id":"11","rca_id2":"1010","rs_idx":"6"}
+        values={"rca_id":"10","rca_id2":"1010","rs_idx":"6"}
         page.locator.side_effect=lambda expression:Mock(input_value=lambda: next(
             value for name,value in values.items() if f'name="{name}"' in expression))
         adapter._page=page
         with pytest.raises(CollectionError) as error:
-            adapter._get_browser({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})
+            adapter._get_browser({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})
         assert error.value.diagnostics["rs_idx"]["live_value_match_count"]==2
 
 
@@ -297,7 +297,7 @@ def test_unexpected_browser_exception_reports_stage_without_message(monkeypatch)
         page.locator.side_effect=TypeError('private-token-or-page-content')
         adapter._page=page
         with pytest.raises(CollectionError) as error:
-            adapter._get_browser({"rca_id":"11","rca_id2":"1010","rs_idx":"6"})
+            adapter._get_browser({"rca_id":"10","rca_id2":"1010","rs_idx":"6"})
         assert error.value.code=="BROWSER_PROCESSING_FAILED"
         assert error.value.diagnostics['stage']=='snapshot'
         assert error.value.diagnostics['exception_type']=='TypeError'
@@ -327,7 +327,7 @@ def test_snapshot_detects_ajax_selection_change_between_reads():
     page=Mock()
     page.content.return_value=html()
     controls={name:Mock() for name in ('rca_id','rca_id2','rs_idx')}
-    controls['rca_id'].input_value.return_value='11'
+    controls['rca_id'].input_value.return_value='10'
     controls['rca_id2'].input_value.return_value='1010'
     controls['rs_idx'].input_value.side_effect=['6','7']
     page.locator.side_effect=lambda expression:next(control for name,control in controls.items() if f'name="{name}"' in expression)
@@ -340,7 +340,7 @@ def test_snapshot_detects_ajax_selection_change_between_reads():
 def test_snapshot_uses_native_api_even_when_page_javascript_evaluation_fails():
     page=Mock()
     page.content.return_value=html()
-    values={'rca_id':'11','rca_id2':'1010','rs_idx':'6'}
+    values={'rca_id':'10','rca_id2':'1010','rs_idx':'6'}
     page.locator.side_effect=lambda expression:Mock(input_value=lambda:next(value for name,value in values.items() if f'name="{name}"' in expression))
     page.evaluate.side_effect=RuntimeError('page main-world script unavailable')
     snapshot=GyeyangCollector._read_snapshot(page)
@@ -380,7 +380,7 @@ def test_category_switch_discovers_court_value_without_guessing_url(monkeypatch)
     with collector(monkeypatch,lambda _:None) as adapter:
         page,state,category,court=category_page()
         adapter._page=page
-        soup,_=adapter._switch_category({'rca_id':'11','rca_id2':'1020'})
+        soup,_=adapter._switch_category({'rca_id':'10','rca_id2':'1020'})
         from tenniswatch.collectors.gyeyang import selected_value
         assert selected_value(soup,'rca_id2')=='1020'
         assert selected_value(soup,'rs_idx')=='9'
@@ -397,7 +397,7 @@ def test_category_switch_does_not_reuse_stale_previous_courts(monkeypatch):
         adapter._page=page
         adapter.timeout_ms=0
         with pytest.raises(CollectionError) as error:
-            adapter._switch_category({'rca_id':'11','rca_id2':'1020'})
+            adapter._switch_category({'rca_id':'10','rca_id2':'1020'})
         assert error.value.code=='CATEGORY_OPTIONS_TIMEOUT'
         assert error.value.diagnostics['stage']=='switch_category'
         court.select_option.assert_not_called()
@@ -408,7 +408,7 @@ def test_category_switch_does_not_override_automatically_selected_real_court(mon
         page,state,category,court=category_page()
         category.select_option.side_effect=lambda value:state.update(category=value,court='10',values=('9','10','11'))
         adapter._page=page
-        soup,_=adapter._switch_category({'rca_id':'11','rca_id2':'1020'})
+        soup,_=adapter._switch_category({'rca_id':'10','rca_id2':'1020'})
         court.select_option.assert_not_called()
         from tenniswatch.collectors.gyeyang import selected_value
         assert selected_value(soup,'rs_idx')=='10'
