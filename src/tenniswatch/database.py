@@ -20,14 +20,15 @@ from sqlalchemy import text
 @contextmanager
 def advisory_job_lock(session, lock_key: int):
     """Serialize a PostgreSQL job across runners; caller must keep this connection open."""
-    acquired = bool(session.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": lock_key}).scalar())
-    if acquired:
-        # Session-level locks survive COMMIT, so keep the job connection out of an
-        # open transaction while a slow site collector runs.
-        session.commit()
-    try:
-        yield acquired
-    finally:
-        if acquired:
-            session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key})
-            session.commit()
+    # Pin one physical connection for the entire session-level lock lifetime.
+    # Session.commit() would return its connection to the pool and may later
+    # unlock a different connection, leaving an orphaned lock behind.
+    with session.get_bind().connect() as connection:
+        acquired = bool(connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": lock_key}).scalar())
+        connection.commit()
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key})
+                connection.commit()

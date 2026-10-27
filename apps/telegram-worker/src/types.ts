@@ -1,4 +1,9 @@
 export interface Env {
+  SCHEDULER_ENABLED?: string;
+  GITHUB_ACTIONS_TOKEN?: string;
+  GITHUB_REPOSITORY?: string;
+  GITHUB_REF?: string;
+  SCHEDULER_ALERT_CHAT_ID?: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   SUPABASE_URL: string;

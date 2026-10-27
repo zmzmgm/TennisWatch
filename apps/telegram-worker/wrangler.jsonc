@@ -6,10 +6,13 @@
   "workers_dev": true,
   "send_metrics": false,
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": ["* * * * *", "7 * * * *", "17 * * * *", "0 0 * * *"]
   },
   "vars": {
     "INBOX_BATCH_SIZE": "1",
+    "SCHEDULER_ENABLED": "false",
+    "GITHUB_REPOSITORY": "zmzmgm/TennisWatch",
+    "GITHUB_REF": "main",
     "DASHBOARD_URL": "https://tenniswatch-telegram-worker.tenniswatch-kkh.workers.dev/dashboard",
     "DASHBOARD_SITE_ORIGIN": "https://tenniswatch-dashboard.adeptgnome512.chatgpt.site",
     "LLM_MAX_TOKENS": "700",
