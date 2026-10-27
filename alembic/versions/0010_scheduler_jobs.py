@@ -53,5 +53,5 @@ def upgrade():
 
 def downgrade():
     for signature in ('reserve_scheduler_job(TEXT,TEXT)', 'claim_scheduler_incidents()', 'daily_reports_due()'):
-        op.execute(f'DROP FUNCTION public.{signature}')
-    op.execute('DROP TABLE public.scheduler_jobs')
+        op.execute(f'DROP FUNCTION IF EXISTS public.{signature}')
+    op.execute('DROP TABLE IF EXISTS public.scheduler_jobs')
