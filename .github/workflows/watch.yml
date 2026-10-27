@@ -1,7 +1,7 @@
 name: Availability watch
 on:
   schedule:
-    - cron: '7 * * * *' # 30분: '7,37 * * * *' + WATCH_INTERVAL_MINUTES=30
+    - cron: '7,37 * * * *' # 매시 7분·37분 실행; 실제 30분 수집에는 WATCH_INTERVAL_MINUTES=30 필요
   workflow_dispatch:
     inputs:
       command:
