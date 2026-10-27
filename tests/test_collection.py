@@ -90,7 +90,7 @@ def test_plan_deduplicates_legacy_and_new_watches_in_seoul_local_date(db):
     assert targets[0].play_dates == (date(2026, 10, 24),)
 
 
-def test_site_poll_interval_and_expired_or_unsupported_watches_are_skipped(db):
+def test_failed_run_retries_without_poll_cooldown_and_expired_or_unsupported_watches_are_skipped(db):
     now = NOW
     today = now.astimezone(ZoneInfo("Asia/Seoul")).date()
     add_watch(db, today)
@@ -99,7 +99,7 @@ def test_site_poll_interval_and_expired_or_unsupported_watches_are_skipped(db):
         site.poll_minutes = 30
         session.add(CollectionRun(site_id=site.id, status="ERROR", started_at=now - timedelta(minutes=10)))
     with db() as session:
-        assert build_collection_plan(session, now=now) == []
+        assert len(build_collection_plan(session, now=now)) == 1
         assert len(build_collection_plan(session, now=now + timedelta(minutes=21))) == 1
     with db.begin() as session:
         session.get(UserWatch, 10).expires_at = now - timedelta(seconds=1)

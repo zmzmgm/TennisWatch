@@ -19,7 +19,7 @@ def html(status="예약가능", court="6", category="1010"):
     # 식별자와 코트 이름은 전부 테스트 자료다.
     options = ''.join(f'<option value="{i}" {"selected" if str(i)==court else ""}>{"실내" if i<9 else "실외"} 시험{i}</option>' for i in range(6,12))
     rows = ''.join(f'<li>{hour:02}:00 {status}</li>' for hour in range(6,22))
-    return f'''<h1>계양 시설대관</h1><select name="rca_id"><option selected value="11">테니스</option></select>
+    return f'''<h1>계양 시설대관</h1><select name="rca_id"><option selected value="10">테니스</option></select>
     <select name="rca_id2"><option selected value="{category}">테니스</option></select>
     <select name="rs_idx">{options}</select><h2>2026.10</h2>
     <table><caption>해당월 요일별 일정</caption><tr><td>26(월)<ul>{rows}</ul></td></tr></table>'''
@@ -36,6 +36,20 @@ def test_only_explicit_available_label_is_available(label, available):
     slots = parse(html(label))
     assert len(slots) == 16 and all(s.available is available for s in slots)
     assert slots[0].observed_at == OBSERVED and slots[0].starts_at.utcoffset() is not None
+
+
+@pytest.mark.parametrize("has_available_class,expected", [(True, True), (False, False)])
+def test_res_slot_item_class_is_the_availability_source(has_available_class, expected):
+    soup = BeautifulSoup(html("예약가능"), "html.parser")
+    for item in soup.select("td li"):
+        slot = soup.new_tag("span", attrs={"class": ["res_slot_item"] +
+            (["available"] if has_available_class else [])})
+        slot.string = item.get_text(" ", strip=True)
+        item.clear()
+        item.append(slot)
+    slots = parse(str(soup))
+    assert len(slots) == 16
+    assert all(slot.available is expected for slot in slots)
 
 
 @pytest.mark.parametrize("change,code", [
@@ -56,6 +70,18 @@ def collector(monkeypatch, respond):
     monkeypatch.setattr("tenniswatch.collectors.gyeyang.clock.sleep", lambda _:None)
     guard = Mock(minimum_interval_seconds=0)
     return GyeyangCollector(transport=httpx.MockTransport(respond), request_guard=guard)
+
+
+def test_httpx_connection_error_retries_public_page_with_playwright(monkeypatch):
+    def respond(request):
+        raise httpx.ConnectError("network unavailable", request=request)
+    with collector(monkeypatch, respond) as adapter:
+        expected = (BeautifulSoup(html(), "html.parser"), OBSERVED)
+        adapter._get_browser = Mock(return_value=expected)
+        actual = adapter._get({"rca_id": "10", "rca_id2": "1010", "rs_idx": "6"})
+        assert actual == expected
+        assert adapter._browser_mode is True
+        adapter._get_browser.assert_called_once_with({"rca_id": "10", "rca_id2": "1010", "rs_idx": "6"})
 
 
 def test_discover_all_courts_and_cache_month_without_retimestamping(monkeypatch):
@@ -129,6 +155,8 @@ def test_successful_inventory_registration_is_idempotent_and_discoverable_by_pla
 
 def test_request_guard_rejects_external_origins(monkeypatch):
     with collector(monkeypatch,lambda _:None) as adapter:
+        from tenniswatch.collectors.policy import RequestGuard
+        adapter.guard = RequestGuard("https://www.gysportsclub.or.kr")
         with pytest.raises(CollectionError) as error:
             adapter.guard.check("https://example.com/res/")
         assert error.value.code=="UNEXPECTED_ORIGIN"

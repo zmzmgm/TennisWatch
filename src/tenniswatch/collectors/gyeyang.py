@@ -319,6 +319,11 @@ class GyeyangCollector(BaseCollector):
                                        headers={"User-Agent": USER_AGENT})
         try:
             response = self.client.get(url)
+        except httpx.ConnectError:
+            # Some public pages are reachable only through a browser-backed request.
+            # Keep the same origin and request pacing, and do not treat this as a full page read.
+            self._browser_mode = True
+            return self._get_browser(params)
         except httpx.HTTPError:
             fail("CONNECTION_ERROR")
         if response.status_code in (401, 403, 429):
