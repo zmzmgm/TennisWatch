@@ -21,6 +21,7 @@ ENTRY_PARAMS = {"rca_id": "10", "rca_id2": "1010", "rs_idx": "6"}
 FACILITY_KEY = "gyeyang_tennis"
 KST = timezone(timedelta(hours=9))
 SLOT_RE = re.compile(r"^(\d{2}):00\s+(예약가능|예약완료|예약마감|예약불가|예약예정)(?:\s|$)")
+SLOT_HOUR_RE = re.compile(r"^\s*(\d{2}):00(?:\s|$)")
 
 
 def fail(code):
@@ -391,16 +392,32 @@ class GyeyangCollector(BaseCollector):
         hours = set()
         for item in items:
             text = item.get_text(" ", strip=True)
-            match = SLOT_RE.match(text)
-            if not match:
-                fail_unknown_status(text)
-            hour, status = int(match[1]), match[2]
+            slot_item = item if "res_slot_item" in item.get("class", []) else item.select_one(".res_slot_item")
+            if slot_item is not None:
+                # The reservation site's explicit CSS state is the availability source.
+                # A missing modifier means not available; never infer availability from prose.
+                slot_text = slot_item.get_text(" ", strip=True)
+                match = SLOT_HOUR_RE.match(slot_text) or SLOT_HOUR_RE.match(text)
+                if not match:
+                    fail("INVALID_SLOT")
+                hour = int(match[1])
+                classes = set(slot_item.get("class", []))
+                available = "available" in classes
+                if available and (slot_item.has_attr("disabled") or
+                                  slot_item.get("aria-disabled") == "true"):
+                    fail_unknown_status(text, disabled=True)
+            else:
+                # Keep compatibility with previously observed calendar markup.
+                match = SLOT_RE.match(text)
+                if not match:
+                    fail_unknown_status(text)
+                hour, status = int(match[1]), match[2]
+                available = status == "예약가능"
             if hour not in range(6, 22) or hour in hours:
                 fail("INVALID_SLOT")
             hours.add(hour)
-            available = status == "예약가능"
-            if available and (item.find(["del", "s", "strike"]) or
-                              item.select('[disabled], [aria-disabled="true"]')):
+            if slot_item is None and available and (item.find(["del", "s", "strike"]) or
+                                                     item.select('[disabled], [aria-disabled="true"]')):
                 fail_unknown_status(text, disabled=True)
             result.append(SlotObservation(
                 slot_key=f"{day.isoformat()}:{court.external_id}:{hour:02d}00-{hour+1:02d}00",
