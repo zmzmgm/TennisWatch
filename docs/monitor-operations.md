@@ -75,7 +75,7 @@ GitHub 저장소의 Actions Secrets에는 `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`�
 - `Reservation opening monitor`: 매시 17분, 검증 정책으로 일정과 알림 창 확인. 브라우저 설치 없음. 수동 실행 지원.
 - CLI 감시 작업은 공통 PostgreSQL advisory lock으로 겹침을 방지합니다. 발송 대기열은 별도로 `SKIP LOCKED`와 15분 임대, 소유 토큰을 사용합니다.
 
-기본 수집 간격은 DB의 `reservation_sites.poll_minutes`(기본 60분)입니다. GitHub Actions 변수 `WATCH_INTERVAL_MINUTES`가 비어 있으면 사이트 설정을 사용합니다. 이 변수에 `30` 또는 `60`을 지정하면 모든 사이트의 간격을 그 값으로 재정의합니다. robots 규칙과 페이지 조회 간격 제한은 계속 적용됩니다.
+기본 수집 간격은 DB의 `reservation_sites.poll_minutes`(기본 60분)입니다. GitHub Actions 변수 `WATCH_INTERVAL_MINUTES`가 비어 있으면 사이트 설정을 사용합니다. 이 변수에 `30` 또는 `60`을 지정하면 모든 사이트의 간격을 그 값으로 재정의합니다. 사이트별 페이지 조회는 최소 5초 간격을 유지합니다.
 
 30분 감시는 두 설정을 함께 바꿉니다.
 
@@ -118,4 +118,4 @@ Python 59개, Worker 25개 모의 테스트와 형식 검사, 문법 검사, `00
 
 ### 수집 실패 재시도와 확인
 
-수집 대상의 poll 간격은 시설별 최근 성공 실행으로 판단합니다. `ERROR`/`PARTIAL`은 poll 간격 제한을 시작하지 않으며 다음 정기 실행에서 다시 시도합니다. 같은 시설의 다른 코트가 성공해도 실패 코트의 재시도를 늦추지 않습니다. `UNKNOWN_STATUS`가 발생하면 전체 날짜 스냅샷을 폐기하며 이전 관측은 유지합니다. 계양의 진단에는 개인정보나 예약 행 전체 없이 인식하지 못한 짧은 상태 토큰만 `collection_runs.error`에 저장될 수 있습니다. 강서 robots 확인 오류는 우회하지 않고 다음 정기 실행에서 다시 확인합니다.
+수집 대상의 poll 간격은 시설별 최근 성공 실행으로 판단합니다. `ERROR`/`PARTIAL`은 poll 간격 제한을 시작하지 않으며 다음 정기 실행에서 다시 시도합니다. 같은 시설의 다른 코트가 성공해도 실패 코트의 재시도를 늦추지 않습니다. `UNKNOWN_STATUS`가 발생하면 전체 날짜 스냅샷을 폐기하며 이전 관측은 유지합니다. 계양의 진단에는 개인정보나 예약 행 전체 없이 인식하지 못한 짧은 상태 토큰만 `collection_runs.error`에 저장될 수 있습니다.

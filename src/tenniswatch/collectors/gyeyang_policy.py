@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from .base import CollectionError
 from .gyeyang import BASE_URL, ENTRY_PARAMS, GyeyangCollector
-from .policy import RobotsGuard, USER_AGENT
+from .policy import RequestGuard, USER_AGENT
 
 SOURCE_URL = GyeyangCollector.url(ENTRY_PARAMS)
 
@@ -53,12 +53,10 @@ def parse_policy(html: str) -> WeeklyPolicyEvidence:
                                 hashlib.sha256(section.encode()).hexdigest())
 
 
-def fetch_policy(*, transport=None, guard=None) -> WeeklyPolicyEvidence:
-    guard = guard or RobotsGuard(BASE_URL, transport=transport)
-    guard.check(SOURCE_URL)
-    delay = max(5, guard.minimum_interval_seconds)
-    if delay > 60:
-        raise CollectionError("ROBOTS_RATE_LIMIT", "정책 수집 간격 때문에 실행을 연기해야 합니다.")
+def fetch_policy(*, transport=None, request_guard=None) -> WeeklyPolicyEvidence:
+    request_guard = request_guard or RequestGuard(BASE_URL)
+    request_guard.check(SOURCE_URL)
+    delay = 5
     clock.sleep(delay)
     try:
         with httpx.Client(transport=transport, timeout=20, follow_redirects=False,

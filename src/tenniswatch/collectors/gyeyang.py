@@ -12,12 +12,12 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout
 
 from .base import BaseCollector, CollectionError, CollectorCapabilities, FacilityRef, safe_failure_details
-from .policy import RobotsGuard, USER_AGENT
+from .policy import RequestGuard, USER_AGENT
 from ..domain import SlotObservation
 
 BASE_URL = "https://www.gysportsclub.or.kr"
 BOOKING_URL = BASE_URL + "/res/"
-ENTRY_PARAMS = {"rca_id": "10", "rca_id2": "1010", "rs_idx": "6"}
+ENTRY_PARAMS = {"rca_id": "11", "rca_id2": "1010", "rs_idx": "6"}
 FACILITY_KEY = "gyeyang_tennis"
 KST = timezone(timedelta(hours=9))
 SLOT_RE = re.compile(r"^(\d{2}):00\s+(예약가능|예약완료|예약마감|예약불가|예약예정)(?:\s|$)")
@@ -95,8 +95,8 @@ class GyeyangCollector(BaseCollector):
     site_key = "gyeyang_incheon"
     capabilities = CollectorCapabilities(court_discovery=True, requires_browser=True)
 
-    def __init__(self, *, transport=None, robots_guard=None, min_interval_seconds=5, timeout_ms=25_000):
-        self.guard = robots_guard or RobotsGuard(BASE_URL, transport=transport)
+    def __init__(self, *, transport=None, request_guard=None, min_interval_seconds=5, timeout_ms=25_000):
+        self.guard = request_guard or RequestGuard(BASE_URL)
         self.transport = transport
         self.client = None
         self.interval = max(5, min_interval_seconds)
@@ -130,8 +130,6 @@ class GyeyangCollector(BaseCollector):
     def _before_request(self, url):
         self.guard.check(url)
         interval = max(self.interval, self.guard.minimum_interval_seconds)
-        if interval > 60:
-            fail("ROBOTS_RATE_LIMIT")
         if self._last_request is not None:
             clock.sleep(max(0, interval - (clock.monotonic() - self._last_request)))
         self._last_request = clock.monotonic()
@@ -353,7 +351,7 @@ class GyeyangCollector(BaseCollector):
             if category_id == ENTRY_PARAMS["rca_id2"]:
                 category_page = soup
             else:
-                category_page, _ = self._get({"rca_id": "10", "rca_id2": category_id})
+                category_page, _ = self._get({"rca_id": ENTRY_PARAMS["rca_id"], "rca_id2": category_id})
             for option in selector(category_page, "rs_idx").find_all("option"):
                 value = option.get("value", "")
                 if not value or value == "0":
@@ -420,7 +418,7 @@ class GyeyangCollector(BaseCollector):
             fail("UNSUPPORTED_FACILITY")
         observations = []
         for court in self.discover_courts():
-            params = {"rca_id": "10", "rca_id2": court.category_id, "rs_idx": court.external_id,
+            params = {"rca_id": ENTRY_PARAMS["rca_id"], "rca_id2": court.category_id, "rs_idx": court.external_id,
                       "year": str(play_date.year), "month": str(play_date.month)}
             key = (court.external_id, play_date.year, play_date.month)
             if key not in self._pages:

@@ -203,7 +203,7 @@ def test_missing_wujang_court_prevents_any_database_registration():
 
 def test_discovery_selects_public_controls_in_order_with_request_spacing(monkeypatch):
     from tenniswatch.collectors import gangseo
-    collector = GangseoCollector(robots_guard=Mock(minimum_interval_seconds=5))
+    collector = GangseoCollector(request_guard=Mock(minimum_interval_seconds=0))
     collector._last_navigation = 100
     monkeypatch.setattr(gangseo.clock, "monotonic", lambda: 100)
     sleep = Mock()
@@ -221,7 +221,7 @@ def test_discovery_timeout_identifies_stage_without_page_data(stage, monkeypatch
     from playwright.sync_api import TimeoutError
     from tenniswatch.collectors import gangseo
     monkeypatch.setattr(gangseo.clock, "sleep", lambda _: None)
-    collector = GangseoCollector(robots_guard=Mock(minimum_interval_seconds=5))
+    collector = GangseoCollector(request_guard=Mock(minimum_interval_seconds=0))
     page = Mock()
     page.wait_for_function.side_effect = [None] * ["center", "part", "place"].index(stage) + [TimeoutError("private page content")]
     with pytest.raises(CollectionError) as error:
@@ -276,7 +276,7 @@ def test_scoped_cli_passes_group_and_reports_actual_scope(monkeypatch, capsys):
 def test_discovery_uses_actual_court_id_when_entry_link_is_outdated(monkeypatch):
     from tenniswatch.collectors import gangseo
     monkeypatch.setattr(gangseo.clock, "sleep", lambda _: None)
-    collector = GangseoCollector(robots_guard=Mock(minimum_interval_seconds=5))
+    collector = GangseoCollector(request_guard=Mock(minimum_interval_seconds=0))
     page = Mock()
     collector._navigate = Mock(return_value=page)
     # 901은 회귀 테스트용 합성 식별자이며 실제 황금내 번호를 뜻하지 않는다.

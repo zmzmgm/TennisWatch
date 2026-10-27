@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import Browser, Page, Playwright, TimeoutError as BrowserTimeout, sync_playwright
 
 from .base import BaseCollector, CollectionError, CollectorCapabilities, FacilityRef
-from .policy import RobotsGuard, USER_AGENT
+from .policy import RequestGuard, USER_AGENT
 from ..domain import SlotObservation
 
 
@@ -106,10 +106,10 @@ class GangseoCollector(BaseCollector):
     capabilities = CollectorCapabilities(requires_browser=True, court_discovery=True)
 
     def __init__(self, *, timeout_ms: int = 25_000, min_interval_seconds: float = 5,
-                 robots_guard: RobotsGuard | None = None) -> None:
+                 request_guard: RequestGuard | None = None) -> None:
         self.timeout_ms = timeout_ms
         self.min_interval_seconds = max(5, min_interval_seconds)
-        self.robots_guard = robots_guard or RobotsGuard(BASE_URL)
+        self.request_guard = request_guard or RequestGuard(BASE_URL)
         self._last_navigation: float | None = None
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
@@ -142,7 +142,7 @@ class GangseoCollector(BaseCollector):
             self._playwright = None
 
     def __enter__(self) -> "GangseoCollector":
-        # Browser launch is lazy, after the robots check and adapter validation.
+        # Browser launch is lazy, after request origin and adapter validation.
         return self
 
     def __exit__(self, *_exc) -> None:
@@ -233,10 +233,8 @@ class GangseoCollector(BaseCollector):
             raise CollectionError("PAGE_DATE_MISMATCH", "Gangseo selected date could not be verified.")
 
     def _navigate(self, url: str):
-        self.robots_guard.check(url)
-        interval = max(self.min_interval_seconds, self.robots_guard.minimum_interval_seconds)
-        if interval > 60:
-            raise CollectionError("ROBOTS_RATE_LIMIT", "The site's request interval requires deferred collection.")
+        self.request_guard.check(url)
+        interval = max(self.min_interval_seconds, self.request_guard.minimum_interval_seconds)
         if self._page is None:
             self.start()
         assert self._page is not None
@@ -271,9 +269,7 @@ class GangseoCollector(BaseCollector):
                     # 발견은 현재 목록이 진실의 원천이다. 슬롯 수집 시에는 별도로 정확한 코트를 검증한다.
                     continue
                 # 이미 선택돼 있어도 change를 한 번 발생시켜 하위 목록의 초기화를 요청한다.
-                interval = max(self.min_interval_seconds, self.robots_guard.minimum_interval_seconds)
-                if interval > 60:
-                    raise CollectionError("ROBOTS_RATE_LIMIT", "요청 간격 제한으로 조회를 중단했습니다.")
+                interval = max(self.min_interval_seconds, self.request_guard.minimum_interval_seconds)
                 if self._last_navigation is not None:
                     clock.sleep(max(0, interval - (clock.monotonic() - self._last_navigation)))
                 self._last_navigation = clock.monotonic()

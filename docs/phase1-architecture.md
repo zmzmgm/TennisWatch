@@ -148,10 +148,10 @@ Use Zod (or equivalent) schemas, strict date/time validation, a small maximum nu
 
 ## Phase 5 검증
 
-- Python: 34개 통과. 구독 대상 중복 제거, 한국 날짜, 수집 주기, 실패 시 보존, 날짜별 원자적 저장, 오래된 관측 무시, robots 규칙과 페이지 문맥 검증을 포함합니다.
+- Python: 34개 통과. 구독 대상 중복 제거, 한국 날짜, 수집 주기, 실패 시 보존, 날짜별 원자적 저장, 오래된 관측 무시, 호스트 제한과 페이지 문맥 검증을 포함합니다.
 - Worker: 22개 통과, TypeScript 형식 검사 통과. 관측 이후의 수집 실패를 현재 잔여석으로 확정 안내하지 않는 동작을 검증했습니다.
 - `0005`까지 PostgreSQL 마이그레이션 SQL 생성 및 Python 문법 검사가 통과했습니다. 실제 Supabase에는 적용하지 않았습니다.
-- 실제 점검 명령은 `ROBOTS_UNAVAILABLE`로 중단됐습니다. 실제 시간표 수집·DB 저장·Telegram 발송의 전체 연동 성공으로 보고하지 않습니다.
+- 실제 시간표 수집·DB 저장·Telegram 발송의 전체 연동 성공으로 보고하지 않습니다.
 - 현장 확인과 재현 절차: [강서 수집 점검 기록](gangseo-collector.md).
 
 

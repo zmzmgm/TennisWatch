@@ -12,7 +12,7 @@ Telegram 자연어 대화와 Python 수집기를 사용하는 공공 테니스�
 
 - Phase 1 분석: 기존 Python 수집기와 모니터링 기반을 확인하고, 확장 아키텍처를 `docs/phase1-architecture.md`에 정리했습니다.
 - 신규 구성은 Supabase PostgreSQL, SQLAlchemy 2.x/Alembic, GitHub Actions, Telegram Bot API를 기준으로 합니다.
-- 강서 어댑터는 우장산근린공원·강서구립·황금내근린공원 테니스장의 공식 진입 링크와 실제 선택 목록을 사용합니다. `discover-gangseo`로 발견한 코트만 `init-gangseo-all`로 등록합니다. 기존 우장산 1코트 구독은 보존합니다. 이번 환경의 전체 코트 발견은 robots 확인 실패로 중단돼 새 코트의 실제 잔여석 수집은 미검증입니다. [확인 내용과 점검 절차](docs/gangseo-collector.md)를 참고하세요.
+- 강서 어댑터는 우장산근린공원·강서구립·황금내근린공원 테니스장의 공식 진입 링크와 실제 선택 목록을 사용합니다. `discover-gangseo`로 발견한 코트만 `init-gangseo-all`로 등록합니다. 기존 우장산 1코트 구독은 보존합니다. 실제 코트별 잔여석 수집은 추가 실행으로 확인해야 합니다. [확인 내용과 점검 절차](docs/gangseo-collector.md)를 참고하세요.
 
 ## 아키텍처
 
@@ -119,7 +119,7 @@ tenniswatch check-policies
 ### Phase 5 — 수집 경로와 데이터 신뢰도
 
 - 기존 `subscriptions`와 새 `user_watches`에서 시설·날짜를 추출하고 중복을 제거합니다. 비활성·만료·미지원 대상은 제외하며 `reservation_sites.poll_minutes`보다 자주 수집하지 않습니다(최소 30분).
-- `robots.txt` 확인 후 브라우저를 시작하고, 날짜별 페이지 조회는 최소 5초 간격과 사이트의 더 긴 간격을 따릅니다. 정책 확인 실패·접근 거부·빈 표·알 수 없는 상태는 수집 실패입니다.
+- 브라우저를 필요한 경우에만 시작하고 날짜별 페이지 조회는 최소 5초 간격으로 제한합니다. 허용된 HTTPS 호스트만 요청합니다. 접근 거부·빈 표·알 수 없는 상태는 수집 실패입니다.
 - 시설/코트/날짜 선택 상태와 시간표 행 로딩을 확인한 뒤 날짜 단위로 원자적으로 저장합니다. 실패 시 이전 슬롯과 관측 시각을 보존하며 더 오래된 관측으로 새 상태를 덮어쓰지 않습니다.
 - `0005`는 시설별 마지막 수집 성공 시각과 수집 실행의 시설·요청 날짜·실행 시간·오류 코드를 추가합니다. 실제 DB 적용은 `alembic upgrade head`로 진행합니다.
 - `SUPPORTED`는 어댑터가 등록되었다는 뜻입니다. 실제 성공 기록은 `last_collected_at` 또는 조회 결과의 `last_successful_collection_at`으로 확인합니다. 현재 환경에서 실제 성공 기록을 생성하지 않았습니다.
@@ -168,7 +168,7 @@ DB와 Telegram에 쓰지 않는 실제 페이지 점검 명령도 제공합니�
 .venv/bin/python -m tenniswatch.cli probe-gangseo --date 2026-10-24
 ```
 
-날짜는 실제로 확인하려는 날짜로 바꿉니다. 로컬 Phase 5 실행은 `ROBOTS_UNAVAILABLE`로 중단됐으며, 이를 예약 마감으로 기록하지 않았습니다.
+날짜는 실제로 확인하려는 날짜로 바꿉니다. 오류가 발생하면 이를 예약 마감으로 기록하지 않습니다.
 
 ### Supabase 사용자/구독 등록 예시
 
