@@ -8,3 +8,10 @@ LLM_MODEL=""
 ALLOWED_TELEGRAM_CHAT_IDS=""
 # 다른 공급자를 쓰면 전체 Chat Completions HTTPS 주소를 지정하세요.
 # LLM_API_URL=""
+
+# Scheduler: keep disabled until migration 0010 and production Secrets are ready.
+SCHEDULER_ENABLED=false
+GITHUB_REPOSITORY=zmzmgm/TennisWatch
+GITHUB_REF=main
+GITHUB_ACTIONS_TOKEN=
+SCHEDULER_ALERT_CHAT_ID=

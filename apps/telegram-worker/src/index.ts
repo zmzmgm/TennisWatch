@@ -1,3 +1,4 @@
+import { schedule, schedulerStatus } from "./scheduler";
 import { SupabaseInboxRepository } from "./db/supabase-inbox";
 import { TelegramBotClient } from "./telegram/client";
 import { handleWebhook, processInboxBatch } from "./telegram/webhook";
@@ -48,6 +49,13 @@ export default {
     if (url.pathname === "/health" && request.method === "GET") {
       return new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } });
     }
+    if (url.pathname === "/scheduler/status" && request.method === "GET") {
+      if (!validSecret(request.headers.get("X-Telegram-Bot-Api-Secret-Token"), env.TELEGRAM_WEBHOOK_SECRET)) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      try { return Response.json(await schedulerStatus(env), { headers: { "Cache-Control": "no-store" } }); }
+      catch { return new Response("unavailable", { status: 503 }); }
+    }
     if (url.pathname === "/ready" && request.method === "GET") {
       if (!validSecret(request.headers.get("X-Telegram-Bot-Api-Secret-Token"), env.TELEGRAM_WEBHOOK_SECRET)) {
         return new Response("unauthorized", { status: 401 });
@@ -71,6 +79,9 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContextLike): Promise<void> {
-    await processInboxBatch(dependencies(env));
+    const work: Promise<unknown>[] = [schedule(_controller, env)];
+    if (_controller.cron === '* * * * *') work.push(Promise.resolve().then(() => processInboxBatch(dependencies(env))));
+    const results = await Promise.allSettled(work);
+    if (results.some(result => result.status === 'rejected')) throw new Error('SCHEDULED_WORK_FAILED');
   },
 };

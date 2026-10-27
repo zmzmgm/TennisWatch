@@ -285,3 +285,18 @@ class CollectionRun(Base):
     status: Mapped[str] = mapped_column(String(20), default="RUNNING")
     records_seen: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class SchedulerJob(Base):
+    __tablename__ = 'scheduler_jobs'
+    job_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    command: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default='PENDING')
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    run_id: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[dict | None] = mapped_column(JSONDocument)
+    alert_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

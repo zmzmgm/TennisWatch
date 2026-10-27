@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select
 
 from .collectors.base import CollectionError, CollectorRegistry, FacilityRef
-from .models import CollectionRun, Facility, ReservationSite, Subscription, TelegramUser, UserWatch, UserWatchFacility
+from .models import CollectionRun, Facility, ReservationSite, Subscription, TelegramUser, UserWatch, UserWatchFacility, DailyReportSetting
 from .services import process_observation
 from .domain import criteria_includes_date
 from .watches import eligible_watches
@@ -27,7 +27,7 @@ def utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None = None, poll_interval_minutes: int | None = None) -> list[CollectionTarget]:
+def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None = None, poll_interval_minutes: int | None = None, report_only: bool = False, ignore_cooldown: bool = False) -> list[CollectionTarget]:
     if not 0 <= days_ahead <= 31:
         raise ValueError("days_ahead must be between 0 and 31")
     if poll_interval_minutes is not None and poll_interval_minutes not in (30, 60):
@@ -36,6 +36,9 @@ def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None 
     today = now.astimezone(ZoneInfo("Asia/Seoul")).date()
     days = [today + timedelta(days=offset) for offset in range(days_ahead + 1)]
     by_facility: dict[int, tuple[Facility, ReservationSite, set[date]]] = {}
+
+    report_users = set(session.scalars(select(DailyReportSetting.user_id).where(
+        DailyReportSetting.enabled.is_(True), DailyReportSetting.next_run_at <= now))) if report_only else set()
 
     def include(facility, site, matching_days):
         entry = by_facility.setdefault(facility.id, (facility, site, set()))
@@ -49,6 +52,8 @@ def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None 
                Facility.enabled.is_(True), Facility.collection_status == "SUPPORTED",
                ReservationSite.enabled.is_(True))).all()
     for sub, facility, site in legacy:
+        if report_only and sub.user_id not in report_users:
+            continue
         try:
             weekdays = [int(item.strip()) for item in sub.weekdays.split(",")] if sub.weekdays else None
         except ValueError:
@@ -66,6 +71,8 @@ def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None 
                TelegramUser.enabled.is_(True), Facility.enabled.is_(True),
                Facility.collection_status == "SUPPORTED", ReservationSite.enabled.is_(True))).all()
     for watch, facility, site in watches:
+        if report_only and watch.user_id not in report_users:
+            continue
         if isinstance(watch.criteria, dict):
             include(facility, site, [day for day in days if criteria_includes_date(watch.criteria, day)])
 
@@ -82,7 +89,7 @@ def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None 
     targets = []
     for facility, site, selected_days in by_facility.values():
         latest = latest_by_facility.get(facility.id) or latest_by_site.get(site.id)
-        if latest:
+        if latest and not report_only and not ignore_cooldown:
             latest_started, latest_status = latest
             # A failed/partial collection must be retried by the next scheduled run;
             # only successful work (or a recent in-progress lease) starts the poll cooldown.
@@ -96,9 +103,9 @@ def build_collection_plan(session, days_ahead: int = 7, *, now: datetime | None 
 
 
 def collect_targets(factory, registry: CollectorRegistry, days_ahead: int = 7, *, now: datetime | None = None, activate_watches: bool = False,
-                    poll_interval_minutes: int | None = None) -> tuple[int, int, int]:
+                    poll_interval_minutes: int | None = None, report_only: bool = False) -> tuple[int, int, int]:
     with factory() as session:
-        targets = build_collection_plan(session, days_ahead, now=now, poll_interval_minutes=poll_interval_minutes)
+        targets = build_collection_plan(session, days_ahead, now=now, poll_interval_minutes=poll_interval_minutes, report_only=report_only)
     if not targets:
         return 0, 0, 0
     runs = total_records = errors = 0
