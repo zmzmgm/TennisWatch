@@ -10,7 +10,7 @@
   },
   "vars": {
     "INBOX_BATCH_SIZE": "1",
-    "SCHEDULER_ENABLED": "false",
+    "SCHEDULER_ENABLED": "true",
     "GITHUB_REPOSITORY": "zmzmgm/TennisWatch",
     "GITHUB_REF": "main",
     "DASHBOARD_URL": "https://tenniswatch-telegram-worker.tenniswatch-kkh.workers.dev/dashboard",
