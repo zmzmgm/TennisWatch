@@ -145,7 +145,7 @@ def main() -> None:
             with GyeyangCollector() as collector:
                 observations = list(collector.collect_slots(
                     FacilityRef(1, "계양테니스장", GYEYANG_KEY, GYEYANG_URL), play_date))
-                courts = collector.discover_courts(groups=groups)
+                courts = collector.discover_courts()
             if args.command == "init-gyeyang":
                 from .gyeyang import register_gyeyang
                 register_gyeyang(make_session_factory(), courts)

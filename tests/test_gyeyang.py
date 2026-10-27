@@ -345,6 +345,22 @@ def test_cli_unexpected_error_always_has_safe_details(monkeypatch,capsys):
     assert 'private' not in json.dumps(result)
 
 
+def test_cli_gyeyang_probe_discovers_courts_without_gangseo_group_argument(monkeypatch,capsys):
+    from tenniswatch import cli
+    import json
+    instance=Mock()
+    instance.__enter__=Mock(return_value=instance)
+    instance.__exit__=Mock(return_value=False)
+    instance.collect_slots.return_value=[]
+    instance.discover_courts.return_value=[object() for _ in range(6)]
+    monkeypatch.setattr('sys.argv',['tenniswatch','probe-gyeyang','--date','2026-10-28'])
+    monkeypatch.setattr(cli,'GyeyangCollector',Mock(return_value=instance))
+    cli.main()
+    result=json.loads(capsys.readouterr().out)
+    assert result['ok'] is True and result['court_count']==6
+    instance.discover_courts.assert_called_once_with()
+
+
 def test_failure_details_never_expose_custom_exception_names():
     from tenniswatch.collectors.base import safe_failure_details
     error_class=type('PrivateSecretInExceptionName',(Exception,),{})
