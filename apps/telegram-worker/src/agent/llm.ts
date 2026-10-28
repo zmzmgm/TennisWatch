@@ -40,6 +40,7 @@ export const LLM_FAILURE_CODES = [
   "LLM_AUTH_FAILED", "LLM_ACCESS_DENIED", "LLM_MODEL_NOT_FOUND", "LLM_QUOTA_EXCEEDED",
   "LLM_RATE_LIMITED", "LLM_INVALID_REQUEST", "LLM_PROVIDER_ERROR", "LLM_NETWORK_FAILED", "LLM_TIMEOUT",
 ] as const;
+const LLM_REQUEST_TIMEOUT_MS = 30_000;
 export type LlmFailureCode = typeof LLM_FAILURE_CODES[number];
 export class LlmRequestError extends Error {
   constructor(readonly code: LlmFailureCode) { super(code); }
@@ -60,7 +61,7 @@ export class OpenAICompatibleClient implements LlmClient {
     if (!this.options.apiKey || !this.options.model) throw new Error("LLM configuration is missing");
     const fetcher = this.options.fetcher ?? fetch;
     let response: Response;
-    const signal = AbortSignal.timeout(15000);
+    const signal = AbortSignal.timeout(LLM_REQUEST_TIMEOUT_MS);
     try {
       response = await fetcher(this.options.endpoint ?? "https://api.openai.com/v1/chat/completions", {
       method: "POST",
