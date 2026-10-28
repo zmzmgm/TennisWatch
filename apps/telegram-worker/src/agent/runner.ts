@@ -22,6 +22,7 @@ export function systemPrompt(now = new Date()): string {
     "예약 가능 여부와 예약 정책은 도구 결과로 확인된 경우에만 사실처럼 말해.",
     "시설 검색은 어댑터가 등록된 일부 시설만 대상으로 해. 검색 결과가 없다고 전국에 시설이 없다고 단정하지 마.",
     "검색 결과에 partial이 true면 일부 슬롯 정보가 오래되었음을 함께 알려.",
+    "search_availability_changes 결과는 전체 저장 이용일의 상태 전이 이력이야. 변경 시각과 이용일을 구분해 설명하고, 이 기록을 현재 잔여석 상태로 해석하지 마. changes가 비어 있으면 조회 범위에서 저장된 변경 이력이 없다고만 말해. 사용자가 더 이전 항목을 요청하고 has_more가 true면 다음 page를 조회해.",
     "시설의 last_successful_collection_at이 null이면 어댑터 등록만 되어 있고 수집 성공 기록은 없다고 설명해.",
     "도구 결과가 not_ready, unsupported, stale, not_found, failed이면 그 상태를 분명히 말하고 완료나 검색 성공을 주장하지 마.",
     "감시 조건의 monitoring_status가 PENDING_ACTIVATION이면 조건 저장만 되었고 자동 감시는 아직 시작되지 않은 상태라고 설명해.",
@@ -136,7 +137,7 @@ export class AgentRunner implements Assistant {
           return { text: data?.enabled === false ? "매일 결과 알림을 해제했어요. 기존 잔여석 감시 조건은 유지돼요." : "매일 결과 알림 해제를 확인하지 못했어요.", usage, context };
         }
         context.lastIntent = call.function.name;
-        if (["search_facilities", "search_availability", "get_opening_schedule"].includes(call.function.name)) {
+        if (["search_facilities", "search_availability", "search_availability_changes", "get_opening_schedule"].includes(call.function.name)) {
           context.lastSearchFilters = args as Record<string, unknown>;
         }
         const data = typeof result.data === "object" && result.data !== null ? result.data as Record<string, unknown> : {};
