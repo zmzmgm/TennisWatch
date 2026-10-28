@@ -248,6 +248,8 @@ export class SupabaseTennisTools implements ConversationStore {
     const params: Record<string, string> = {
       select: "id,previous_status,current_status,observed_at,slot:availability_slots!inner(id,facility_id,court_name,play_date,starts_at,ends_at)",
       "slot.facility_id": `in.(${supported.map((facility) => facility.id).join(",")})`,
+      previous_status: "in.(UNKNOWN,UNAVAILABLE)",
+      current_status: "eq.AVAILABLE",
       order: "observed_at.desc,id.desc",
       limit: String(limit + 1),
       offset: String((page - 1) * limit),
