@@ -70,6 +70,41 @@ function toolFailureReply(code?: string): string {
   }
 }
 
+function safeLabel(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 100) || fallback : fallback;
+}
+
+function koreaTimestamp(value: unknown): string {
+  if (typeof value !== "string") return "시각 미확인";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "시각 미확인";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).format(date);
+}
+
+function availabilityChangesReply(data: Record<string, unknown>, input: Record<string, unknown>): string {
+  const changes = Array.isArray(data.changes) ? data.changes as Array<Record<string, unknown>> : [];
+  const facility = typeof input.facility === "string" ? safeLabel(input.facility, "") : "";
+  const region = typeof input.region === "string" ? safeLabel(input.region, "") : "";
+  const scope = facility || region || "등록된 전체 연동 시설";
+  const playDate = typeof input.play_date === "string" ? `${input.play_date} 이용분` : "전체 이용 날짜";
+  if (!changes.length) {
+    return `${scope}의 ${playDate}에 저장된 예약 상태 변경 이력이 없어요.`;
+  }
+  const statusLabels: Record<string, string> = {
+    UNKNOWN: "미확인", AVAILABLE: "예약 가능", UNAVAILABLE: "예약 불가",
+  };
+  const statusName = (value: unknown) => statusLabels[String(value)] ?? safeLabel(value, "상태 미확인");
+  const rows = changes.map((change) => {
+    const time = safeLabel(change.time, "시간 미확인");
+    return `• ${safeLabel(change.facility, "시설명 미확인")} ${safeLabel(change.court, "코트 미확인")} · ${safeLabel(change.play_date, "날짜 미확인")} ${time}: ${statusName(change.from)} → ${statusName(change.to)} (${koreaTimestamp(change.changed_at)} KST)`;
+  });
+  const more = data.has_more === true ? "\n더 오래된 기록이 있어요. “변경 내역 더 보여줘”라고 요청해 주세요." : "";
+  return `${scope}의 ${playDate} 예약 상태 변경 내역 ${rows.length}건이에요:\n${rows.join("\n")}${more}\n\n변경 이력은 과거 관측이며 현재 예약 가능 여부를 뜻하지 않아요.`;
+}
+
 export class AgentRunner implements Assistant {
   constructor(
     private readonly llm: LlmClient,
@@ -142,6 +177,9 @@ export class AgentRunner implements Assistant {
         }
         const data = typeof result.data === "object" && result.data !== null ? result.data as Record<string, unknown> : {};
         const inputArgs = typeof args === "object" && args !== null ? args as Record<string, unknown> : {};
+        if (call.function.name === "search_availability_changes") {
+          return { text: availabilityChangesReply(data, inputArgs), usage, context };
+        }
         if (typeof data.subscription_id === "number") context.activeSubscriptionId = data.subscription_id;
         if (call.function.name === "delete_subscription" && context.activeSubscriptionId === inputArgs.subscription_id) {
           context.activeSubscriptionId = null;
