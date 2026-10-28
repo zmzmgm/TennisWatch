@@ -122,6 +122,7 @@ export class SupabaseTennisTools implements ConversationStore {
     return {
       search_facilities: (_context, input) => this.searchFacilities(input),
       search_availability: (_context, input) => this.searchAvailability(input),
+      search_availability_changes: (_context, input) => this.searchAvailabilityChanges(input),
       get_opening_schedule: (_context, input) => this.getOpeningSchedule(input),
       create_subscription: (context, input) => this.mutate(context, "create_subscription", input),
       update_subscription: (context, input) => this.mutate(context, "update_subscription", input),
@@ -236,6 +237,59 @@ export class SupabaseTennisTools implements ConversationStore {
       facilities: supported.length,
       partial: classified.some((slot) => slot.is_stale) || missingFacilityData,
       slots: available,
+    } };
+  }
+
+  async searchAvailabilityChanges(input: Record<string, unknown>): Promise<ToolResult> {
+    const { supported, known } = await this.matching(input);
+    if (supported.length === 0) return { ok: false, code: known.length ? "unsupported" : "not_found" };
+    const limit = typeof input.limit === "number" ? input.limit : 10;
+    const page = typeof input.page === "number" ? input.page : 1;
+    const params: Record<string, string> = {
+      select: "id,previous_status,current_status,observed_at,slot:availability_slots!inner(id,facility_id,court_name,play_date,starts_at,ends_at)",
+      "slot.facility_id": `in.(${supported.map((facility) => facility.id).join(",")})`,
+      order: "observed_at.desc,id.desc",
+      limit: String(limit + 1),
+      offset: String((page - 1) * limit),
+    };
+    if (typeof input.play_date === "string") params["slot.play_date"] = `eq.${input.play_date}`;
+    const events = await this.rows<{
+      id: number;
+      previous_status: string;
+      current_status: string;
+      observed_at: string;
+      slot: {
+        facility_id: number;
+        court_name: string;
+        play_date: string;
+        starts_at: string;
+        ends_at: string;
+      };
+    }>("availability_events", params);
+    const facilitiesById = new Map(supported.map((facility) => [facility.id, facility]));
+    const hasMore = events.length > limit;
+    const changes = events.slice(0, limit).flatMap((event) => {
+      const facility = facilitiesById.get(event.slot.facility_id);
+      if (!facility) return [];
+      return [{
+        facility: facility.name,
+        play_date: event.slot.play_date,
+        court: event.slot.court_name,
+        time: `${hhmm(event.slot.starts_at)}-${hhmm(event.slot.ends_at)}`,
+        from: event.previous_status,
+        to: event.current_status,
+        changed_at: event.observed_at,
+      }];
+    });
+    return { ok: true, data: {
+      scope: typeof input.play_date === "string" ? `play_date=${input.play_date}` : "all_stored_play_dates",
+      facility_count: supported.length,
+      returned: changes.length,
+      limit,
+      page,
+      has_more: hasMore,
+      changes,
+      note: "Historical status transitions only; this is not a live availability check.",
     } };
   }
 
